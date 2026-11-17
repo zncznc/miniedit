@@ -3,12 +3,11 @@
 一个能装进 Windows 的代码编辑器。**高亮规则不写在程序里**——它直接解释 EverEdit 分发格式的
 `syntax/*.mac` 与 `theme/*.ini`，所以"像不像"可以逐条数出来，不用靠肉眼比。
 
+![MiniEdit 界面](build/screenshot.png)
+
 ## 装与用
 
-```
-dist/miniedit_1.0.0_setup.exe     ← 双击安装，可自选目录，装完自动启动
-```
-
+到 [Releases](../../releases/latest) 下载 `miniedit_1.0.0_setup.exe`，双击安装，可自选目录，装完自动启动。
 安装后开始菜单和桌面会有 MiniEdit。第一次启动会打开两个示例文件，直接敲字就能编辑。
 
 | 操作 | 快捷键 |
@@ -58,6 +57,8 @@ npm start         # 桌面模式（需要 electron）
 npm run verify    # 打印每个语法文件的解释结果
 npm run dist      # 出安装包 → dist/miniedit_1.0.0_setup.exe
 ```
+
+安装包不进仓库（约 117 MB），只挂在 Releases 上；`dist/` 已在 `.gitignore` 里。
 
 打包机注意两条：
 
