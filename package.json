@@ -1,7 +1,7 @@
 {
   "name": "miniedit",
   "productName": "MiniEdit",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "MiniEdit — 数据驱动的代码编辑器，直接读取 EverEdit 分发格式的语法与配色",
   "main": "desktop/main.cjs",
   "type": "module",
@@ -12,7 +12,8 @@
     "serve": "node server.mjs",
     "verify": "node tools/verify.mjs",
     "dist": "electron-builder --win nsis",
-    "dist:dir": "electron-builder --win dir"
+    "dist:dir": "electron-builder --win dir",
+    "test:fold": "node tools/fold-test.mjs"
   },
   "build": {
     "appId": "com.miniedit.app",

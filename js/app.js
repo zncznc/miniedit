@@ -1,6 +1,7 @@
 import { interpret } from './core/mac.mjs';
 import { parseIni, buildTokenCss, themeVars } from './core/theme.mjs';
 import { compile, highlightLines, spansToHtml, escapeHtml } from './core/highlight.mjs';
+import { foldRegions, visibleRows } from './core/fold.mjs';
 
 const $ = (id) => document.getElementById(id);
 const bridge = window.miniedit || null;
@@ -36,7 +37,7 @@ const state = {
   settings: {},
   themeName: '',
   lastRenderMs: 0,
-  gutterCount: -1,
+  gutterSig: '',
   lineHeight: 20,
   padY: 8,
   padX: 14,
@@ -45,6 +46,13 @@ const state = {
   zoom: 0,
   wrap: false,
   showGutter: true,
+  indentGuides: true,
+  // 折叠视图：viewRows 为可见行的真实下标，null 表示未折叠
+  viewRows: null,
+  viewLineStarts: null,
+  realLineStarts: null,
+  realToView: null,
+  foldActive: false,
 };
 
 const PAIRS = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'", '`': '`' };
@@ -125,6 +133,7 @@ async function boot() {
       await openRef(params.get('ref'));
       if (params.has('syntax')) setTabSyntax(params.get('syntax'));
     }
+    if (params.has('fold')) foldAll();
     if (params.has('about')) showAbout();
   }
 }
@@ -143,6 +152,8 @@ function applySettings() {
   el.actline.classList.toggle('on', state.settings.ActiveLine !== 'N');
   el.hlInner.style.tabSize = String(state.tabSize);
   el.ta.style.tabSize = String(state.tabSize);
+  // 缩进线的一格宽度跟着 Tab 宽度走
+  el.hlInner.style.setProperty('--step', `${state.tabSize}ch`);
   el.ta.classList.toggle('wrap', state.wrap);
   document.body.classList.toggle('wrap', state.wrap);
 }
@@ -225,6 +236,8 @@ function makeTab({ name, text, syntax, path, encoding, eol, sample }) {
     dirty: false,
     sample: !!sample,
     scrollTop: 0,
+    folds: new Set(),
+    foldCache: null,
   };
 }
 
@@ -255,7 +268,7 @@ function loadActive() {
     el.stLang.textContent = '—';
     el.stEnc.value = 'utf-8';
     el.stEol.textContent = '—';
-    state.gutterCount = -1;
+    state.gutterSig = '';
     render();
     updateStatus();
     return;
@@ -266,7 +279,7 @@ function loadActive() {
   el.stLang.textContent = tab.syntax.replace(/\.mac$/, '');
   el.stEnc.value = tab.encoding;
   el.stEol.textContent = tab.eol;
-  state.gutterCount = -1;
+  state.gutterSig = '';
   render();
 }
 
@@ -274,9 +287,11 @@ function setTabSyntax(name) {
   const tab = activeTab();
   if (!tab) return;
   tab.syntax = name;
+  tab.foldCache = null;
+  tab.folds.clear();
   el.syntax.value = name;
   el.stLang.textContent = name.replace(/\.mac$/, '');
-  state.gutterCount = -1;
+  state.gutterSig = '';
   render();
 }
 
@@ -335,6 +350,77 @@ function splitLines(text) {
   return text.split(/\r\n|\r|\n/);
 }
 
+function lineStarts(text) {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) starts.push(i + 1);
+  return starts;
+}
+
+function lineOfOffset(starts, offset) {
+  let lo = 0;
+  let hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid] <= offset) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+// 当前语法下的可折叠块；文本或语法一改就重算（tab.text 没变时是同一引用，比对很便宜）
+function foldsOf(tab, lines, entry) {
+  const cache = tab.foldCache;
+  if (cache && cache.text === tab.text && cache.syntax === tab.syntax) return cache;
+  const meta = (entry && entry.root && entry.root.meta) || {};
+  const regions = foldRegions(lines, meta, state.tabSize);
+  const byStart = new Map();
+  for (const r of regions) if (!byStart.has(r.start)) byStart.set(r.start, r);
+  tab.foldCache = { text: tab.text, syntax: tab.syntax, regions, byStart };
+  return tab.foldCache;
+}
+
+// 视图偏移 → 真实偏移（未折叠时两者相同）
+function realOffsetOfView(viewOffset) {
+  if (!state.viewRows) return viewOffset;
+  const v = lineOfOffset(state.viewLineStarts, viewOffset);
+  const row = state.viewRows[Math.min(v, state.viewRows.length - 1)];
+  return state.realLineStarts[row] + (viewOffset - state.viewLineStarts[v]);
+}
+
+// 真实偏移 → 视图偏移；落在被折叠行里时退回块首行末
+function viewOffsetOfReal(realOffset) {
+  if (!state.viewRows) return realOffset;
+  const r = lineOfOffset(state.realLineStarts, realOffset);
+  const v = state.realToView.get(r);
+  if (v === undefined) {
+    // 找最近的可见行（往前）
+    let lo = 0;
+    let hi = state.viewRows.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (state.viewRows[mid] <= r) lo = mid;
+      else hi = mid - 1;
+    }
+    // 停在这一可见行的末尾（下一行起点减去换行符）
+    const nextStart = lo + 1 < state.viewLineStarts.length ? state.viewLineStarts[lo + 1] - 1 : Infinity;
+    return nextStart === Infinity ? el.ta.value.length : nextStart;
+  }
+  return state.viewLineStarts[v] + (realOffset - state.realLineStarts[r]);
+}
+
+function indentGuideHtml(line) {
+  if (!state.indentGuides) return '';
+  let cols = 0;
+  for (const ch of line) {
+    if (ch === ' ') cols++;
+    else if (ch === '\t') cols += state.tabSize - (cols % state.tabSize);
+    else break;
+  }
+  const levels = Math.floor(cols / state.tabSize);
+  if (levels < 1) return '';
+  return `<span class="ig" style="width:calc(${levels} * var(--step))"></span>`;
+}
+
 function render() {
   const tab = activeTab();
   const lines = tab ? splitLines(tab.text) : [''];
@@ -344,19 +430,82 @@ function render() {
   const t0 = performance.now();
   const spans = entry ? highlightLines(lines, entry.compiled, cap) : null;
 
-  const parts = new Array(lines.length);
-  for (let i = 0; i < lines.length; i++) {
-    parts[i] = `<div>${spans ? spansToHtml(lines[i], spans[i]) : escapeHtml(lines[i]) || '&nbsp;'}</div>`;
+  // 折叠：先清掉失效的块，再把折叠块从可见行里去掉
+  let rows = null;
+  let foldInfo = null;
+  if (tab) {
+    foldInfo = foldsOf(tab, lines, entry);
+    for (const s of [...tab.folds]) if (!foldInfo.byStart.has(s)) tab.folds.delete(s);
+    if (tab.folds.size) {
+      const vis = visibleRows(lines.length, foldInfo.regions, tab.folds);
+      if (vis.rows.length < lines.length) rows = vis.rows;
+    }
+  }
+
+  state.viewRows = rows;
+  state.realLineStarts = lineStarts(tab ? tab.text : '');
+  if (rows) {
+    const starts = new Array(rows.length);
+    const back = new Map();
+    let off = 0;
+    for (let v = 0; v < rows.length; v++) {
+      starts[v] = off;
+      back.set(rows[v], v);
+      off += lines[rows[v]].length + 1;
+    }
+    state.viewLineStarts = starts;
+    state.realToView = back;
+  } else {
+    state.viewLineStarts = null;
+    state.realToView = null;
+  }
+
+  const count = rows ? rows.length : lines.length;
+  const parts = new Array(count);
+  for (let v = 0; v < count; v++) {
+    const r = rows ? rows[v] : v;
+    parts[v] = `<div data-real="${r}">${indentGuideHtml(lines[r])}${
+      spans ? spansToHtml(lines[r], spans[r]) : escapeHtml(lines[r]) || '&nbsp;'
+    }</div>`;
   }
   el.hlInner.innerHTML = parts.join('');
-  state.lastRenderMs = performance.now() - t0;
 
-  if (state.gutterCount !== lines.length) {
-    const nums = new Array(lines.length);
-    for (let i = 0; i < lines.length; i++) nums[i] = `<div>${i + 1}</div>`;
+  const foldedSig = tab ? [...tab.folds].join(',') : '';
+  const sig = `${count}|${foldedSig}|${foldInfo ? foldInfo.regions.length : 0}`;
+  if (state.gutterSig !== sig) {
+    const nums = new Array(count);
+    for (let v = 0; v < count; v++) {
+      const r = rows ? rows[v] : v;
+      const region = foldInfo && foldInfo.byStart.get(r);
+      const closed = !!region && tab.folds.has(r);
+      const tri = region
+        ? `<b class="tri" data-fold="${r}" title="${closed ? '展开' : '折叠'} ${region.end - r} 行">${closed ? '▸' : '▾'}</b>`
+        : '<b class="tri"></b>';
+      nums[v] = `<div${region ? ' class="foldrow"' : ''}>${tri}<span class="ln">${r + 1}</span></div>`;
+    }
     el.gutterInner.innerHTML = nums.join('');
-    state.gutterCount = lines.length;
+    state.gutterSig = sig;
   }
+
+  // 折叠时文本框只装可见行；一改文本就靠 unfoldAll 先还原，绝不会从折叠视图里取正文
+  if (rows) {
+    const viewText = rows.map((r) => lines[r]).join('\n');
+    if (el.ta.value !== viewText) {
+      const top = el.ta.scrollTop;
+      const anchor = state.foldActive ? realOffsetOfView(el.ta.selectionStart) : 0;
+      el.ta.value = viewText;
+      el.ta.scrollTop = top;
+      const off = state.foldActive ? viewOffsetOfReal(anchor) : 0;
+      el.ta.setSelectionRange(off, off);
+    }
+    state.foldActive = true;
+  } else if (state.foldActive) {
+    el.ta.value = tab ? tab.text : '';
+    state.foldActive = false;
+    const pos = Math.min(el.ta.value.length, el.ta.selectionStart);
+    el.ta.setSelectionRange(pos, pos);
+  }
+  state.lastRenderMs = performance.now() - t0;
 
   syncScroll();
   updateStatus();
@@ -383,9 +532,9 @@ function syncScroll() {
   el.hlInner.style.transform = `translate(${-left}px, ${-top}px)`;
   el.gutterInner.style.transform = `translateY(${-top}px)`;
   const info = caretInfo();
-  const y = state.padY + (info.line - 1) * state.lineHeight - top;
+  const y = state.padY + (info.viewLine - 1) * state.lineHeight - top;
   el.actline.style.transform = `translateY(${y}px)`;
-  const current = el.gutterInner.children[info.line - 1];
+  const current = el.gutterInner.children[info.viewLine - 1];
   if (current) {
     for (const c of el.gutterInner.querySelectorAll('.current')) c.classList.remove('current');
     current.classList.add('current');
@@ -396,7 +545,13 @@ function caretInfo() {
   const pos = el.ta.selectionStart;
   const before = el.ta.value.slice(0, pos);
   const nl = before.lastIndexOf('\n');
-  return { pos, line: before.split('\n').length, col: pos - nl, selLen: el.ta.selectionEnd - el.ta.selectionStart };
+  const viewLine = before.split('\n').length;
+  let line = viewLine;
+  if (state.viewRows) {
+    const r = state.viewRows[Math.min(viewLine - 1, state.viewRows.length - 1)];
+    if (r !== undefined) line = r + 1;
+  }
+  return { pos, viewLine, line, col: pos - nl, selLen: el.ta.selectionEnd - el.ta.selectionStart };
 }
 
 function updateStatus() {
@@ -413,10 +568,59 @@ function updateStatus() {
   el.stPos.textContent = `行 ${info.line}, 列 ${info.col}`;
   el.stSel.textContent = info.selLen ? `选中 ${info.selLen}` : '';
   const lines = splitLines(tab.text).length;
-  el.stStats.textContent = `${lines} 行 · ${tab.text.length} 字符${tab.sample ? ' · 示例' : ''}`;
+  const fold = tab.folds && tab.folds.size ? ` · 折叠 ${tab.folds.size} 处` : '';
+  el.stStats.textContent = `${lines} 行 · ${tab.text.length} 字符${fold}${tab.sample ? ' · 示例' : ''}`;
   el.stEnc.value = tab.encoding;
   el.stEnc.title = `编码：${ENC_LABEL[tab.encoding] || tab.encoding}（保存时按此写回）`;
   el.stEol.textContent = tab.eol;
+}
+
+// ---------- 折叠 ----------
+
+function toggleFold(realLine) {
+  const tab = activeTab();
+  if (!tab) return;
+  if (tab.folds.has(realLine)) tab.folds.delete(realLine);
+  else tab.folds.add(realLine);
+  render();
+  // 光标放到块首行末，便于立刻继续操作
+  const v = state.realToView && state.realToView.has(realLine) ? state.realToView.get(realLine) : realLine;
+  const starts = state.viewLineStarts || state.realLineStarts;
+  const lineText = splitLines(tab.text)[realLine] || '';
+  const off = (starts[v] || 0) + lineText.length;
+  el.ta.setSelectionRange(off, off);
+  syncScroll();
+}
+
+function unfoldAll() {
+  const tab = activeTab();
+  if (!tab || !tab.folds || !tab.folds.size) return;
+  const anchor = realOffsetOfView(el.ta.selectionStart);
+  tab.folds.clear();
+  render();
+  const off = viewOffsetOfReal(anchor);
+  el.ta.setSelectionRange(off, off);
+  syncScroll();
+}
+
+function foldAll() {
+  const tab = activeTab();
+  if (!tab) return;
+  const lines = splitLines(tab.text);
+  const info = foldsOf(tab, lines, getSyntax(tab.syntax));
+  if (!info.regions.length) return;
+  // 只折最外层：被别的块包住的直接跳过
+  const starts = [];
+  let guard = -1;
+  for (const r of info.regions) {
+    if (r.start <= guard) continue;
+    starts.push(r.start);
+    guard = r.end;
+  }
+  tab.folds.clear();
+  for (const s of starts) tab.folds.add(s);
+  render();
+  syncScroll();
 }
 
 function updateTitle() {
@@ -439,6 +643,7 @@ function setText(value, selStart, selEnd) {
   const tab = activeTab();
   if (!tab) return;
   tab.text = value;
+  tab.foldCache = null;
   el.ta.value = value;
   el.ta.setSelectionRange(selStart, selEnd ?? selStart);
   touchDirty();
@@ -449,8 +654,15 @@ el.ta.addEventListener('input', () => {
   const tab = activeTab();
   if (!tab) return;
   tab.text = el.ta.value;
+  tab.foldCache = null;
   touchDirty();
   scheduleRender();
+});
+
+// 折叠视图只是显示层：任何会改文本的动作先把折叠展开，正文永远取自真实文本
+el.ta.addEventListener('beforeinput', (e) => {
+  if (!state.foldActive) return;
+  if (/^(insert|delete)/.test(e.inputType || '')) unfoldAll();
 });
 
 el.ta.addEventListener('scroll', syncScroll, { passive: true });
@@ -464,10 +676,17 @@ el.ta.addEventListener('keydown', (e) => {
   if (mod && e.key.toLowerCase() === 'h') { e.preventDefault(); openFind(true); return; }
   if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); e.shiftKey ? saveActive(true) : saveActive(false); return; }
   if (mod && e.key.toLowerCase() === 'g') { e.preventDefault(); openGoto(); return; }
+  if (mod && e.shiftKey && (e.key === '[' || e.key === '{')) { e.preventDefault(); foldAll(); return; }
+  if (mod && e.shiftKey && (e.key === ']' || e.key === '}')) { e.preventDefault(); unfoldAll(); return; }
   if (mod && e.key.toLowerCase() === 't') { e.preventDefault(); addTab({ name: '未命名', text: '', syntax: 'text.mac' }); return; }
   if (mod && e.key.toLowerCase() === 'w') { e.preventDefault(); closeTab(state.active); return; }
   if (e.key === 'Escape' && !el.findbar.hidden) { e.preventDefault(); closeFind(); return; }
   if (e.key === 'F11') { e.preventDefault(); toggleFullscreen(); return; }
+
+  // 折叠状态下敲字/回车/删除：先展开（光标位置会映射回真实偏移），再交给浏览器插入
+  if (state.foldActive && !mod && !e.altKey) {
+    if (e.key.length === 1 || ['Backspace', 'Delete', 'Enter', 'Tab'].includes(e.key)) unfoldAll();
+  }
 
   const start = el.ta.selectionStart;
   const end = el.ta.selectionEnd;
@@ -679,6 +898,8 @@ let findMatches = [];
 let findIndex = -1;
 
 function openFind(withReplace) {
+  // 查找/替换跑在真实文本上，折叠时先展开
+  unfoldAll();
   el.findbar.hidden = false;
   const sel = el.ta.value.slice(el.ta.selectionStart, el.ta.selectionEnd);
   if (sel && !sel.includes('\n')) el.findInput.value = sel;
@@ -770,6 +991,7 @@ $('replaceAll').addEventListener('click', () => {
 function openGoto() {
   const tab = activeTab();
   if (!tab) return;
+  unfoldAll();
   const total = splitLines(tab.text).length;
   $('gotoRange').textContent = `共 ${total} 行`;
   const input = $('gotoInput');
@@ -825,7 +1047,8 @@ const ABOUT_ROWS = [
   ['自动缩进 / 自动配对', '已实现', 'AutoIndent、AutoPair 取自 setting.ini'],
   ['十六进制视图', '未实现', '原版由 hexedit.dll 提供'],
   ['文件树 / 侧栏', '未实现', '原版由 shelltree.dll 提供'],
-  ['代码折叠 / 缩进线', '未实现', '.mac 里的 FoldText 已解析但未渲染'],
+  ['代码折叠', '已实现', 'FoldText / IndentText / FoldingMethod 优先，缺声明按缩进兜底'],
+  ['缩进线', '已实现', '按 Tab 宽度在每级缩进处画线，可在查看菜单开关'],
   ['宏 / 脚本扩展', '未实现', '原版用 .esm 模式与 JS 宏'],
 ];
 
@@ -898,6 +1121,13 @@ async function handleMenu(action, arg) {
     case 'find': openFind(false); break;
     case 'replace': openFind(true); break;
     case 'goto': openGoto(); break;
+    case 'fold-all': foldAll(); break;
+    case 'unfold-all': unfoldAll(); break;
+    case 'toggle-indent':
+      state.indentGuides = !state.indentGuides;
+      if (bridge && bridge.setIndentGuides) bridge.setIndentGuides(state.indentGuides);
+      render();
+      break;
     case 'zoom-in': state.zoom = Math.min(17, state.zoom + 1); applyZoom(); break;
     case 'zoom-out': state.zoom = Math.max(-4, state.zoom - 1); applyZoom(); break;
     case 'zoom-reset': state.zoom = 0; applyZoom(); break;
@@ -946,6 +1176,14 @@ function bindUi() {
   $('btnSaveAs').addEventListener('click', () => saveActive(true));
   $('fileInput').addEventListener('change', (e) => { openLocalFiles(e.target.files); e.target.value = ''; });
   $('btnFind').addEventListener('click', () => openFind(false));
+  $('btnFold').addEventListener('click', () => foldAll());
+  $('btnUnfold').addEventListener('click', () => unfoldAll());
+
+  // 行号栏上的三角：切换该块折叠
+  el.gutter.addEventListener('click', (e) => {
+    const tri = e.target.closest('[data-fold]');
+    if (tri) toggleFold(Number(tri.dataset.fold));
+  });
 
   el.stEnc.addEventListener('change', () => {
     const tab = activeTab();

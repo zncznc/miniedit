@@ -169,6 +169,11 @@ function buildMenu() {
         { type: 'separator' },
         { label: '自动换行', accelerator: 'Alt+Z', click: () => send('toggle-wrap') },
         { label: '行号', click: () => send('toggle-gutter') },
+        { label: '缩进线', click: () => send('toggle-indent') },
+        { type: 'separator' },
+        { label: '折叠全部', accelerator: 'CmdOrCtrl+Shift+[', click: () => send('fold-all') },
+        { label: '展开全部', accelerator: 'CmdOrCtrl+Shift+]', click: () => send('unfold-all') },
+        { type: 'separator' },
         { label: '转到语法选择', accelerator: 'CmdOrCtrl+L', click: () => send('focus-syntax') },
         { type: 'separator' },
         { label: '全屏', accelerator: 'F11', click: () => send('toggle-fullscreen') },
@@ -318,6 +323,40 @@ function runSmoke() {
           };
         })()`);
         console.log('SMOKE_IO ' + JSON.stringify(roundTrip));
+
+        // 折叠：点第一个三角 → 可见行变少；再触发一次编辑意图 → 自动展开且正文复原
+        const fold = await win.webContents.executeJavaScript(`(() => {
+         try {
+          const ta = document.getElementById('ta');
+          const full = ta.value;
+          const fullLines = full.split(String.fromCharCode(10)).length;
+          const tris = [...document.querySelectorAll('#gutterInner [data-fold]')];
+          const guides = document.querySelectorAll('#hlInner .ig').length;
+          const grad = guides ? getComputedStyle(document.querySelector('#hlInner .ig')).backgroundImage.slice(0, 46) : '';
+          if (!tris.length) return { ok: false, reason: '没有可折叠标记', guides };
+          const idx = Number(tris[0].dataset.fold);
+          tris[0].click();
+          const afterLines = ta.value.split(String.fromCharCode(10)).length;
+          const tri = document.querySelector('#gutterInner [data-fold="' + idx + '"]');
+          const status = document.getElementById('stStats').textContent;
+          ta.focus();
+          ta.setSelectionRange(120, 120);
+          ta.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', bubbles: true, cancelable: true }));
+          return {
+            ok: true,
+            guides,
+            grad,
+            foldLine: idx + 1,
+            removed: fullLines - afterLines,
+            shrunk: ta.value.length < full.length || afterLines < fullLines,
+            arrow: tri ? tri.textContent : '',
+            status,
+            restored: ta.value === full,
+            caret: ta.selectionStart,
+          };
+         } catch (e) { return { ok: false, error: String(e && e.message || e) }; }
+        })()`);
+        console.log('SMOKE_FOLD ' + JSON.stringify(fold));
 
         const info = await win.webContents.executeJavaScript(`(() => {
           const tabs = [...document.querySelectorAll('.tab .name')].map(n => n.textContent);

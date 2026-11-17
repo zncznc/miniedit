@@ -10,3 +10,6 @@ dist-*/
 Thumbs.db
 build/icon-*.png
 !build/icon.ico
+
+# 调试截图
+.shot-*.png

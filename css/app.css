@@ -135,7 +135,7 @@ body {
 
 .gutter {
   flex: 0 0 auto;
-  width: 56px;
+  width: 64px;
   overflow: hidden;
   background: var(--gutter-bg);
   color: var(--gutter-fg);
@@ -144,7 +144,7 @@ body {
   position: relative;
 }
 #gutterInner {
-  padding: var(--pad-y) 8px var(--pad-y) 0;
+  padding: var(--pad-y) 6px var(--pad-y) 5px;
   font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
   font-size: var(--font-size);
   line-height: var(--line-height);
@@ -356,3 +356,41 @@ body.wrap #hlInner { right: 0; }
   white-space: nowrap;
   border: 0;
 }
+
+/* 折叠与缩进线 */
+
+:root { --guide: rgba(120, 132, 148, 0.30); }
+body.dark { --guide: rgba(150, 160, 178, 0.26); }
+
+#hlInner div { position: relative; }
+#hlInner .ig {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  pointer-events: none;
+  /* 每级缩进末尾画一条 1px 竖线，第 0 列不画（那是文字左边缘，不是缩进位） */
+  background-image: repeating-linear-gradient(to right, transparent 0 calc(var(--step, 4ch) - 1px), var(--guide) calc(var(--step, 4ch) - 1px) var(--step, 4ch));
+}
+
+#gutterInner div {
+  display: flex;
+  align-items: center;
+  padding-right: 6px;
+}
+#gutterInner .ln { flex: 1 1 auto; }
+#gutterInner .tri {
+  flex: 0 0 12px;
+  width: 12px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--gutter-fg);
+  cursor: pointer;
+  opacity: 0;
+  user-select: none;
+}
+#gutterInner .foldrow .tri { opacity: 0.75; }
+#gutterInner .foldrow:hover .tri,
+#gutterInner .tri[data-fold]:hover { opacity: 1; color: var(--accent); }
