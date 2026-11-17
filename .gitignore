@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-*/
+.build-cache/
+.smoke-*/
+.smoke-*.png
+.smoke.png
+*.log
+.DS_Store
+Thumbs.db
+build/icon-*.png
+!build/icon.ico

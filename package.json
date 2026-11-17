@@ -1,0 +1,74 @@
+{
+  "name": "miniedit",
+  "productName": "MiniEdit",
+  "version": "1.0.0",
+  "description": "MiniEdit — 数据驱动的代码编辑器，直接读取 EverEdit 分发格式的语法与配色",
+  "main": "desktop/main.cjs",
+  "type": "module",
+  "author": "MiniEdit",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "serve": "node server.mjs",
+    "verify": "node tools/verify.mjs",
+    "dist": "electron-builder --win nsis",
+    "dist:dir": "electron-builder --win dir"
+  },
+  "build": {
+    "appId": "com.miniedit.app",
+    "productName": "MiniEdit",
+    "copyright": "MiniEdit",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "desktop/**/*",
+      "js/**/*",
+      "css/**/*",
+      "assets/**/*",
+      "index.html",
+      "package.json",
+      "!samples/**",
+      "!tools/**",
+      "!server.mjs",
+      "!dist/**"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "miniedit_${version}_setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MiniEdit",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "license": "build/license.txt"
+    },
+    "compression": "maximum"
+  },
+  "dependencies": {
+    "iconv-lite": "^0.6.3"
+  },
+  "devDependencies": {
+    "electron": "^45.3.3",
+    "electron-builder": "^26.18.0"
+  }
+}

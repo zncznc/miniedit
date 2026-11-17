@@ -1,0 +1,44 @@
+'*******************************************************************************
+' EverEdit Syntax File
+' Language:    Kotlin
+' Maintainer:  www.everedit.net  
+' History:
+'   2021/03/01 init
+'*******************************************************************************
+Include( ".\const.mac" )
+Set kotlin=CreateParser()
+
+'comment
+Set rLineComment=kotlin.CreateRegion( COLOR_COMMENT1, "+//+", "$", True )
+Set rBlockComment=kotlin.CreateRegion( COLOR_COMMENT1, "+/*+", "+*/+", True )
+kotlin.AddRegion( rLineComment )
+kotlin.AddRegion( rBlockComment )
+
+'string
+Set rString2=kotlin.CreateStringRegion( COLOR_STRING2, """", "\", False )
+Set rString1=kotlin.CreateStringRegion( COLOR_STRING1, "'", "\", False )
+kotlin.AddRegion( rString2 )
+kotlin.AddRegion( rString1 )
+
+'function
+kotlin.AddItem( kotlin.CreateItem(COLOR_FUNCTION, "[\w_]{1, 40}(?=\()", False) )
+
+kotlin.AddWord( kotlin.CreateWord(COLOR_WORD1, "as break class continue do else false for fun if in interface is null object package return super this throw true try typealias val var when while", True ) )
+
+kotlin.AddWord( kotlin.CreateWord(COLOR_WORD2, "by catch constructor delegate dynamic field file finally get import init param property receiver set setparam where", True ) )
+
+kotlin.AddWord( kotlin.CreateWord(COLOR_WORD3, "Annotation Any Array AssertionError Boolean BooleanArray Byte ByteArray Char CharArray CharSequence ClassCastException Comparable Comparator ConcurrentModificationException DeprecationLevel Double DoubleArray Enum Error Exception Float FloatArray Function IllegalArgumentException IllegalStateException IndexOutOfBoundsException Int IntArray KotlinVersion Lazy LazyThreadSafetyMode Long LongArray NoSuchElementException NoWhenBranchMatchedException Nothing NullPointerException Number NumberFormatException Pair RuntimeException Short ShortArray String Throwable Triple UninitializedPropertyAccessException Unit UnsupportedOperationException", True ) )
+
+'number
+kotlin.AddItem( kotlin.CreateItem(COLOR_NUMBER, "\b\d+\b", False) )
+
+'@xxxxx
+kotlin.AddItem( kotlin.CreateItem(COLOR_SUBLAN, "@[\w\d_]+\b", False) )
+
+'folding
+kotlin.FoldText "\{", False, "\}", False
+kotlin.IndentText "(\[|{|\w+:)$", False, "^\s*}|\]$", False
+
+kotlin.SetPairs( "[]{}()""""''" )
+kotlin.CommentLine("//")
+kotlin.CommentBlock "/*", "*/"

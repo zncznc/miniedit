@@ -1,0 +1,30 @@
+'*******************************************************************************
+' EverEdit Syntax File
+' Language:    Plain text file(txt/log)
+' Maintainer:  www.everedit.net  
+' History:
+'   2014/03/13 First Version
+'   2020/08/05 enhanced for .log
+'*******************************************************************************
+Include( ".\const.mac" )
+
+Set txt=CreateParser()
+txt.WordChars="_"
+
+'number
+txt.AddItem( txt.CreateItem(COLOR_NUMBER, "\b\d+\b", False) )
+txt.AddItem( txt.CreateItem(COLOR_HIGHLIGHT8, "\bdebug\b", False) )
+txt.AddItem( txt.CreateItem(COLOR_HIGHLIGHT2, "\b(warn|warning)\b", False) )
+txt.AddItem( txt.CreateItem(COLOR_HIGHLIGHT1, "\berror\b", False) )
+txt.AddItem( txt.CreateItem(COLOR_HIGHLIGHT5, "\binfo\b", False) )
+
+Set rString2=txt.CreateStringRegion( COLOR_STRING2, """", "", False )
+txt.AddRegion( rString2 )
+
+'operators
+txt.AddItem( txt.CreateItem(COLOR_WORD1, "[:punct:]+",False ) )
+txt.AddItem( txt.CreateItem(COLOR_COMMENT2, "^[\d\-\s:\.]+", False) )
+
+txt.SetPairs( "[]{}()""""''" )
+txt.FoldingMethod="indent"
+

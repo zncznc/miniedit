@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  body { width: 100vw; height: 100vh; }
+  svg { display: block; }
+</style>
+</head>
+<body>
+<svg width="100%" height="100%" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b3242"/>
+      <stop offset="1" stop-color="#171b24"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="51.5" fill="none" stroke="#3d4759" stroke-width="1"/>
+  <!-- 代码条：红/黄/绿/蓝四色，小尺寸下仍可辨认是“代码” -->
+  <g>
+    <rect x="44"  y="62"  width="70"  height="17" rx="4" fill="#e06c75"/>
+    <rect x="126" y="62"  width="86"  height="17" rx="4" fill="#c678dd"/>
+    <rect x="44"  y="93"  width="52"  height="17" rx="4" fill="#61afef"/>
+    <rect x="108" y="93"  width="104" height="17" rx="4" fill="#98c379"/>
+    <rect x="44"  y="124" width="96"  height="17" rx="4" fill="#e5c07b"/>
+    <rect x="152" y="124" width="60"  height="17" rx="4" fill="#56b6c2"/>
+    <rect x="44"  y="155" width="78"  height="17" rx="4" fill="#98c379"/>
+    <rect x="134" y="155" width="78"  height="17" rx="4" fill="#abb2bf" opacity="0.55"/>
+  </g>
+  <!-- 光标 -->
+  <rect x="44" y="188" width="12" height="26" rx="2" fill="#61afef"/>
+  <rect x="62" y="196" width="58" height="10" rx="4" fill="#abb2bf" opacity="0.35"/>
+</svg>
+</body>
+</html>

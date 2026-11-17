@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'">
+<title>MiniEdit</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app">
+  <header class="tabs" id="tabs"></header>
+
+  <div class="toolbar">
+    <button id="btnNew" title="新建 (Ctrl+N)">新建</button>
+    <button id="btnOpen" title="打开 (Ctrl+O)">打开</button>
+    <button id="btnSave" title="保存 (Ctrl+S)">保存</button>
+    <button id="btnSaveAs" title="另存为 (Ctrl+Shift+S)">另存为</button>
+    <span class="sep"></span>
+    <label class="sr">语言</label>
+    <select id="syntax" title="语法定义（原版 syntax/*.mac）"></select>
+    <select id="theme" title="配色（原版 theme/*.ini）"></select>
+    <span class="sep"></span>
+    <button id="btnFind">查找 / 替换</button>
+    <span class="spacer"></span>
+    <span class="hint" id="parseHint"></span>
+  </div>
+
+  <main class="shell">
+    <div class="gutter" id="gutter"><div id="gutterInner"></div></div>
+    <div class="stage" id="stage">
+      <div id="actline"></div>
+      <pre id="hl" aria-hidden="true"><div id="hlInner"></div></pre>
+      <textarea id="ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea>
+    </div>
+  </main>
+
+  <div class="findbar" id="findbar" hidden>
+    <input type="text" id="findInput" placeholder="查找">
+    <label><input type="checkbox" id="findRegex"> 正则</label>
+    <label><input type="checkbox" id="findCase"> 区分大小写</label>
+    <button id="findPrev">上一个</button>
+    <button id="findNext">下一个</button>
+    <span class="count" id="findCount"></span>
+    <span class="sep"></span>
+    <input type="text" id="replaceInput" placeholder="替换为">
+    <button id="replaceOne">替换</button>
+    <button id="replaceAll">全部替换</button>
+    <span class="spacer"></span>
+    <button id="findClose">关闭</button>
+  </div>
+
+  <footer class="status">
+    <span id="stPos">行 1, 列 1</span>
+    <span id="stSel"></span>
+    <span class="spacer"></span>
+    <span id="stStats"></span>
+    <select id="stEnc" class="mini" title="编码（保存时按此写回）">
+      <option value="utf-8">UTF-8</option>
+      <option value="utf-8-bom">UTF-8 BOM</option>
+      <option value="gbk">GBK</option>
+      <option value="utf-16le">UTF-16 LE</option>
+      <option value="utf-16be">UTF-16 BE</option>
+    </select>
+    <button id="stEol" class="mini" title="点击切换行尾（LF / CRLF）">LF</button>
+    <span id="stLang">—</span>
+    <button id="btnAbout" class="link">对照说明</button>
+  </footer>
+
+  <input type="file" id="fileInput" multiple hidden>
+</div>
+
+<dialog id="aboutDlg">
+  <div class="dlg-head"><span>重建版与原版的对照</span><span id="aboutClose" style="cursor:pointer;opacity:.6">✕</span></div>
+  <div class="dlg-body" id="aboutBody"></div>
+  <div class="dlg-foot"><button id="aboutOk">知道了</button></div>
+</dialog>
+
+<dialog id="errDlg">
+  <div class="dlg-head"><span id="errTitle">解析错误</span><span id="errClose" style="cursor:pointer;opacity:.6">✕</span></div>
+  <div class="dlg-body" id="errBody"></div>
+  <div class="dlg-foot"><button id="errOk">关闭</button></div>
+</dialog>
+
+<dialog id="gotoDlg">
+  <div class="dlg-head"><span>转到行</span><span id="gotoClose" style="cursor:pointer;opacity:.6">✕</span></div>
+  <div class="dlg-body"><input type="number" id="gotoInput" min="1" value="1" style="width:120px"> <span id="gotoRange" style="opacity:.6"></span></div>
+  <div class="dlg-foot"><button id="gotoCancel">取消</button><button id="gotoOk">跳转</button></div>
+</dialog>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
