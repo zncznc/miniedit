@@ -1,4 +1,4 @@
-# MiniEdit 1.3.0
+# MiniEdit 1.4.0
 
 一个能装进 Windows 的代码编辑器。**高亮规则不写在程序里**——它直接解释 EverEdit 分发格式的
 `syntax/*.mac` 与 `theme/*.ini`，所以"像不像"可以逐条数出来，不用靠肉眼比。
@@ -7,14 +7,13 @@
 
 ## 装与用
 
-到 [Releases](../../releases/latest) 下载 `miniedit_1.3.0_setup.exe`，双击安装，可自选目录，装完自动启动。
+到 [Releases](../../releases/latest) 下载 `miniedit_1.4.0_setup.exe`，双击安装，可自选目录，装完自动启动。
 安装后开始菜单和桌面会有 MiniEdit。第一次启动会打开两个示例文件，直接敲字就能编辑。
 工具条是图标按钮，悬停有名称和快捷键提示。
 
-安装包 **108 MB**，装完约 **311 MB**，其中**我们的代码只有 1.5 MB**（`resources/app.asar`）——
-剩下全是 Electron 自带的 Chromium + Node 运行时（`MiniEdit.exe` 本体未压缩就有 238 MB）。
-已经把能省的地方都省了：`compression: maximum`（LZMA）、47 MB 的多语言包裁到只剩简体中文和英文
-（`locales/` 从 49 MB 降到 1.2 MB）。要再往下，只有不用 Chromium 一条路，见文末「体积这件事」。
+**安装包 848 KB，装完 2.19 MB**——用的是系统自带的 Edge WebView2 渲染界面，不再自带浏览器。
+（Win11 自带 WebView2；Win10 装过 Edge 就有。）上一版走 Electron，安装包 108 MB、装完 311 MB，
+代码同样是这些，差别全在运行时。两个外壳都在仓库里，见文末「两个外壳」。
 
 | 操作 | 快捷键 |
 |---|---|
@@ -46,7 +45,13 @@
 ## 结构
 
 ```
-desktop/main.cjs      主进程：窗口、菜单、文件对话框、编码读写
+shell/src/main.rs     WebView2 外壳：窗口、自定义协议、IPC 路由、原生对话框
+shell/src/bridge.rs   注入页面的 window.miniedit（与 preload.cjs 接口一致）
+shell/src/text.rs     编码与行尾（encoding_rs，UTF-16 手工拼 BOM）
+shell/src/bundle.rs   assets/reference → /api/bundle 的 JSON
+shell/src/state.rs    %APPDATA%/MiniEdit/state.json
+shell/installer.nsi   NSIS 安装脚本（约 100 行）
+desktop/main.cjs      Electron 主进程：窗口、菜单、文件对话框、编码读写
 desktop/preload.cjs   contextBridge，只暴露必要方法（sandbox 打开）
 desktop/encoding.cjs  编码识别与写回（GBK 走 iconv-lite，UTF-16 手工拼 BOM）
 desktop/reference.cjs 只读参考数据，把 syntax/theme 当配置读
@@ -62,48 +67,52 @@ tools/fold-test.mjs   折叠区间的不变量检查，`npm run test:fold`
 tools/crop-png.mjs    裁剪放大截图（只依赖 zlib），查像素细节用
 ```
 
-数据在 asar 里只读，用户文件永远在外面读写，互不影响。
+两套外壳共用同一份前端；数据在安装目录里只读，用户文件永远在外面读写，互不影响。
 
 ## 开发与打包
 
 ```bash
+# WebView2 外壳（默认，出 848 KB 安装包）
+cd shell && ./build.sh          # cargo build --release + makensis
+MINIEDIT_WEB=<仓库根> MINIEDIT_SMOKE_SHELL=1 shell/target/release/miniedit-shell.exe
+
+# Electron 外壳（备用）
 npm install
 npm run serve       # 浏览器模式，http://127.0.0.1:5178
 npm start           # 桌面模式（需要 electron）
 npm run verify      # 打印每个语法文件的解释结果
 npm run test:fold   # 折叠区间的不变量检查
 npm run unsupported # 未支持语句排序（语句名 × 文件数）
-npm run dist        # 出安装包 → dist/miniedit_1.3.0_setup.exe
+npm run dist        # 出安装包 → dist/miniedit_1.4.0_setup.exe
 ```
 
-安装包不进仓库（约 117 MB），只挂在 Releases 上；`dist/` 已在 `.gitignore` 里。
+安装包不进仓库，只挂在 Releases 上；`dist/`、`dist-shell/` 已在 `.gitignore` 里。
 
-打包机注意两条：
+打包机注意三条：
 
+- WebView2 版要 NSIS 3：`winget install NSIS.NSIS`；Rust 用 `windows-gnu` 工具链即可，**不需要 MSVC**
+  （wry 的 `WebView2Loader.dll` 从 `target/*/build/webview2-com-sys-*/out/x64/` 拷出来）；
 - 环境里有 `ELECTRON_RUN_AS_NODE=1` 时 electron 会被当成纯 Node 跑，启动前要 `env -u ELECTRON_RUN_AS_NODE`；
-- 若上一次的产物目录已存在，electron-builder 会先批量删旧目录，某些环境的安全策略会拦下这一步。
-  换个输出目录即可：`npx electron-builder --win nsis -c.directories.output=dist-build`。
-
-（`dist/` 下只留安装包；`.build-cache/` 里是历次中间产物，可以直接删。）
+- 本机 `NODE_OPTIONS` 里注入的 safe-delete shim 会让 electron-builder 清目录时 EPERM，打包要
+  `env -u NODE_OPTIONS`。
 
 ### 自检
 
-主进程内置一条无头自检链路（`MINIEDIT_SMOKE=<png 路径>` 启动），它会：
+两套外壳各有自己的无头自检。
 
-1. 经 IPC 写一个 GBK + CRLF 的中文文件，再读回来，比对编码、行尾、正文是否一致；
-2. 点一下行号栏的三角，确认可见行数正好少了 `end-start` 行、三角变成 `▸`、状态栏出现"折叠 N 处"；
-3. 再派发一次 `beforeinput`，确认折叠自动展开且正文与折叠前逐字一致（`restored: true`）；
-4. 抓取界面状态（标签、规则数、主题数、语法数、缩进线数量）；
-5. 量一遍工具条和查找栏：每个按钮的文字必须单行、`scrollHeight` 不超出按钮高度，装不下时
-   允许横向滚动而不是把按钮压扁（`SMOKE_LAYOUT ok=true`）；
-6. 截一张图后退出。
+**WebView2 版**：`MINIEDIT_SMOKE_SHELL=1` 启动，3.5 秒后注入探针，逐步收集（每步单独 try/catch）：
 
-窄窗口和缩放也能量：`MINIEDIT_SMOKE_SIZE=720x480` 把窗口压到最小宽度，
-`MINIEDIT_SMOKE_ZOOM=1.8` 模拟系统缩放 / 页面放大。
+1. `dom`：页面 URL、`#ta` 是否存在、body 长度；
+2. `io`：经 IPC 写 GBK + CRLF 中文，再读回来比对编码 / 行尾 / 正文；
+3. `fold`：点第一个三角，确认行数变少、箭头变 `▸`，再触发 `beforeinput` 确认正文复原；
+4. `layout`：工具条按钮有没有被折行裁掉、缩进线数量；
+5. `boot`：`/api/bundle` 里语法与恢复快照的数量。
 
-`npm run dist` 出来的包已用这条链路验证过：`SMOKE_IO ok=true`、24 套主题、67 个语法、
-`SMOKE_FOLD removed=21 shrunk=true arrow="▸" restored=true`（在自带的 `assets/samples/demo.php`
-上折 `class Greeter` 那一块，21 行收进去、正文逐字复原）。
+结果一次性打印成 `SMOKE_SHELL {...}` + `SMOKE_OK`。安装后的 `D:\MiniEdit` 已用这条链路跑过：
+67 个语法 / 24 套主题 / 69 行高亮 / `fold.restored=true` / GBK 往返 `same=true`。
+
+**Electron 版**：`MINIEDIT_SMOKE=<png>` 启动，走 IPC 往返、点三角折叠、抓界面状态、量工具条，
+最后截一张图退出。窄窗口和缩放也能量：`MINIEDIT_SMOKE_SIZE=720x480`、`MINIEDIT_SMOKE_ZOOM=1.8`。
 
 ## 折叠是怎么做的
 
@@ -149,23 +158,35 @@ npm run dist        # 出安装包 → dist/miniedit_1.3.0_setup.exe
 改完的结果（`npm run verify` 可复现）：67/67 完整解释，未支持 0 条，近似 7 处；
 规则总量只增不减 —— 条目 +41 条、关键字 +19 组，没有哪个语法少了解释出来的规则。
 
-## 体积这件事
+## 两个外壳
 
-EverEdit 的安装包不到 5 MB，因为它是一个纯 Win32 C++ 程序，编辑器控件、语法引擎、渲染全是自己写的，
-没有第三方运行时。MiniEdit 反过来：界面是 HTML/CSS/JS，跑在 Chromium 里。
+界面只有一份（`index.html` + `js/` + `css/` + `assets/`），外面套的"壳"有两套：
 
-| 部分 | 未压缩 | 说明 |
-|---|---|---|
-| `MiniEdit.exe`（Chromium + Node） | 238 MB | Electron 的硬成本，压不下去 |
-| `dxcompiler.dll` / `swiftshader` / `d3dcompiler` | 34 MB | GPU / WebGPU 着色器编译，删了在无独显机器上可能花屏 |
-| `resources.pak` / `icudtl.dat` | 23 MB | Chromium 资源与 ICU 数据 |
-| `locales/` | 1.2 MB | 已从 49 MB 裁到 zh-CN + en-US |
-| **我们的代码（`app.asar`）** | **1.5 MB** | 解释器 + 界面 + 原版 75 个 `.mac`、24 套主题 |
+| 外壳 | 目录 | 安装包 | 装完 | 依赖 |
+|---|---|---|---|---|
+| **WebView2（默认）** | `shell/`（Rust + wry/tao） | **848 KB** | 2.19 MB | 系统的 Edge WebView2 运行时 |
+| Electron（备用） | `desktop/` + `server.mjs` | 108 MB | 311 MB | 无，自带 Chromium |
 
-所以 Electron 路线的安装包下限就在 100 MB 上下（LZMA 压完 108 MB）。想接近 5 MB，需要换成
-**WebView2 外壳**：界面代码一行不用改，把主进程的文件对话框、编码读写、菜单换成 Rust/C++ 实现，
-安装包可以做到 3–6 MB——代价是依赖系统的 Edge WebView2 运行时（Win11 自带，Win10 需装过 Edge），
-不再自带浏览器。这条路线还没做，当前版本走的是"自带运行时、双击就能跑"的取舍。
+**为什么能小两个数量级**：EverEdit 不到 5 MB，是因为它纯 Win32、渲染和语法引擎都自己写。MiniEdit 的
+界面是 HTML/CSS/JS，Electron 版本质上附带了一整个 Chromium（`MiniEdit.exe` 未压缩就 238 MB）。
+换成 WebView2 后，浏览器由系统提供，我们只剩：
+
+| 部分 | 大小 |
+|---|---|
+| `MiniEdit.exe`（Rust 外壳） | 955 KB |
+| `WebView2Loader.dll` | 162 KB |
+| 前端 + 75 个 `.mac` + 24 套主题 | 1.3 MB |
+| 安装包（LZMA 压完） | **848 KB** |
+
+Electron 版为保留"没有 WebView2 也能跑"这条退路，一行没删；`npm run dist` 仍可出 108 MB 的包。
+
+### 外壳差在哪
+
+WebView2 版用 tao，没有跨平台菜单栏 API，所以**没有菜单条**：文件/编辑/查看的加速键改由前端
+`document` 级 keydown 接管（Ctrl+N/O/S/Shift+S/W、Ctrl+=/−/0、Alt+Z、Ctrl+L…都通）。
+另外 tao 的 `CloseRequested` 拦不住关窗，没法像 Electron 那样弹"要保存吗"，改成**未保存内容快照**：
+改到 1.2 秒后自动写 `%APPDATA%/MiniEdit/recovery.json`，下次启动原样恢复成带 ● 的标签页，
+点 × 直接走人也不丢字。
 
 ## 没做的，以及为什么
 
@@ -186,6 +207,11 @@ EverEdit 的安装包不到 5 MB，因为它是一个纯 Win32 C++ 程序，编�
 - `Sub` 过程可以写在调用之后（`nsis.mac` 就是这样），所以要先登记、再执行；
 - `php.kwd` 不是「一行一个词」的平表：它按 `#16,1,0` 这样的段头分段，第一个数是颜色索引，
   整份表有四段、四种颜色，当成一段处理会把内置函数全涂成关键字色。
+- wry 在 `windows-gnu` 工具链下能直接编（WebView2 的导入库由 `webview2-com-sys` 自带），
+  但运行时**必须把 `WebView2Loader.dll` 放到 exe 旁边**，否则进程 236 毫秒就静默退出，一个字都不输出；
+- tao 0.30 的 `WindowEvent::CloseRequested` 是空变体，**拦不住关窗**（winit 那些版本才有 `api`），
+  所以"未保存要提示"改成了恢复快照；也没有菜单模块，`with_menu` 只收裸 `HMENU`；
+- 原生对话框会自己跑消息循环，从 WebView2 的 IPC 回调里同步弹可能卡死，要丢到独立线程再回包。
 
 ## 数据来源
 

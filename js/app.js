@@ -94,6 +94,7 @@ async function boot() {
     state.zoom = info.zoom || 0;
     state.savedTheme = info.theme || '';
     state.recent = info.recent || [];
+    state.recovery = info.recovery || [];
     state.version = info.version;
   } else {
     state.bundle = await (await fetch('/api/bundle')).json();
@@ -117,7 +118,23 @@ async function boot() {
   if (bridge) {
     bridge.onMenu(handleMenu);
     bridge.onOpenFiles((paths) => openPaths(paths));
-    if (state.recent.length) await openPaths([state.recent[0]]);
+    const recovered = state.recovery || [];
+    if (recovered.length) {
+      // 上次退出时有没保存的内容：直接恢复成未保存标签，点 ● 就能另存
+      for (const r of recovered) {
+        const tab = addTab({
+          name: r.name,
+          text: r.text,
+          syntax: r.syntax,
+          path: r.path,
+          encoding: r.encoding,
+          eol: r.eol,
+        });
+        tab.dirty = true;
+      }
+      renderTabs();
+      updateTitle();
+    } else if (state.recent.length) await openPaths([state.recent[0]]);
     else {
       await openSample('demo.py');
       await openSample('hello.c');
@@ -630,6 +647,21 @@ function updateTitle() {
   if (!bridge) return;
   const tab = activeTab();
   bridge.setTitle(tab ? tab.name : '', state.tabs.some((t) => t.dirty));
+  scheduleRecovery();
+}
+
+// 未保存内容的快照：WebView2 壳拦不住窗口关闭，改成"随手存、下次启动恢复"，
+// 点 × 走人也不会丢字。Electron 版有原生菜单可以拦截关闭，这里也不冲突。
+let recoveryTimer = null;
+function scheduleRecovery() {
+  if (!bridge || !bridge.saveRecovery) return;
+  clearTimeout(recoveryTimer);
+  recoveryTimer = setTimeout(() => {
+    const dirty = state.tabs
+      .filter((t) => t.dirty)
+      .map((t) => ({ name: t.name, text: t.text, syntax: t.syntax, path: t.path, encoding: t.encoding, eol: t.eol }));
+    bridge.saveRecovery(dirty);
+  }, 1200);
 }
 
 function touchDirty(flag = true) {
@@ -671,6 +703,27 @@ el.ta.addEventListener('beforeinput', (e) => {
 el.ta.addEventListener('scroll', syncScroll, { passive: true });
 el.ta.addEventListener('keyup', syncScroll);
 el.ta.addEventListener('click', syncScroll);
+
+// 没有原生菜单栏的壳（WebView2 版）用 document 级快捷键补上菜单加速键。
+// 文本框自己的 keydown 先跑，处理过的会 preventDefault，这里直接跳过。
+document.addEventListener('keydown', (e) => {
+  if (!bridge || bridge.hasMenu) return;
+  if (e.defaultPrevented) return;
+  const mod = e.ctrlKey || e.metaKey;
+  const key = e.key.toLowerCase();
+  const el2 = document.activeElement;
+  const typing = el2 && /^(input|textarea)$/i.test(el2.tagName) && el2 !== el.ta;
+
+  if (mod && e.altKey && key === 's') { e.preventDefault(); handleMenu('save-all'); return; }
+  if (mod && key === 'n') { e.preventDefault(); newFile(); return; }
+  if (mod && key === 'o') { e.preventDefault(); openDialog(); return; }
+  if (mod && e.shiftKey && key === 'w') { e.preventDefault(); handleMenu('close-all'); return; }
+  if (mod && key === 'l') { e.preventDefault(); el.syntax.focus(); return; }
+  if (mod && (key === '=' || key === '+')) { e.preventDefault(); handleMenu('zoom-in'); return; }
+  if (mod && key === '-') { e.preventDefault(); handleMenu('zoom-out'); return; }
+  if (mod && key === '0') { e.preventDefault(); handleMenu('zoom-reset'); return; }
+  if (e.altKey && !mod && key === 'z' && !typing) { e.preventDefault(); handleMenu('toggle-wrap'); return; }
+});
 
 el.ta.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
