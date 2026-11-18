@@ -1,4 +1,4 @@
-Unicode true
+﻿Unicode true
 
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
@@ -84,6 +84,8 @@ Section "Uninstall"
   RMDir "$SMPROGRAMS\MiniEdit"
 
   RMDir /r "$INSTDIR\web"
+  ; 旧版本把 WebView2 的缓存写在了 exe 旁边，卸载时要一并清掉
+  RMDir /r "$INSTDIR\MiniEdit.exe.WebView2"
   Delete "$INSTDIR\${EXE}"
   Delete "$INSTDIR\WebView2Loader.dll"
   Delete "$INSTDIR\uninstall.exe"

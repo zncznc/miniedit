@@ -473,7 +473,11 @@ fn main() {
     let ipc_proxy = proxy.clone();
     let drag_proxy = proxy.clone();
 
-    let webview = WebViewBuilder::new()
+    // WebView2 默认把缓存/存储写在 exe 旁边（装到 Program Files 就写不进去，还会把安装目录撑大），
+    // 统一挪到 %APPDATA%\MiniEdit\webview2
+    let mut web_context = wry::WebContext::new(Some(state::user_data_dir().join("webview2")));
+
+    let webview = WebViewBuilder::with_web_context(&mut web_context)
         .with_custom_protocol("miniedit".to_string(), move |_id, req| {
             if req.uri().path() == "/api/bundle" {
                 let value = BUNDLE.get_or_init(|| {
