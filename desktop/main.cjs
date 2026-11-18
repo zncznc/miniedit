@@ -415,8 +415,8 @@ function runSmoke() {
           const wasHidden = fb.hidden;
           btn.click();
           out.findbar = check(fb);
-          if (wasHidden) btn.click();
-          out.ok = out.ok && out.findbar.ok;
+          if (wasHidden) document.getElementById('findClose').click();
+          out.ok = out.ok && out.findbar.ok && fb.hidden;
           return out;
         })()`);
         console.log('SMOKE_LAYOUT ' + JSON.stringify(layout));

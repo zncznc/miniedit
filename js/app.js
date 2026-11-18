@@ -1178,7 +1178,7 @@ function bindUi() {
   $('btnSave').addEventListener('click', () => saveActive(false));
   $('btnSaveAs').addEventListener('click', () => saveActive(true));
   $('fileInput').addEventListener('change', (e) => { openLocalFiles(e.target.files); e.target.value = ''; });
-  $('btnFind').addEventListener('click', () => openFind(false));
+  $('btnFind').addEventListener('click', () => (el.findbar.hidden ? openFind(false) : closeFind()));
   $('btnFold').addEventListener('click', () => foldAll());
   $('btnUnfold').addEventListener('click', () => unfoldAll());
 

@@ -1,7 +1,7 @@
 {
   "name": "miniedit",
   "productName": "MiniEdit",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "MiniEdit — 数据驱动的代码编辑器，直接读取 EverEdit 分发格式的语法与配色",
   "main": "desktop/main.cjs",
   "type": "module",
@@ -64,7 +64,11 @@
       "runAfterFinish": true,
       "license": "build/license.txt"
     },
-    "compression": "maximum"
+    "compression": "maximum",
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ]
   },
   "dependencies": {
     "iconv-lite": "^0.6.3"

@@ -1,4 +1,4 @@
-# MiniEdit 1.2.1
+# MiniEdit 1.3.0
 
 一个能装进 Windows 的代码编辑器。**高亮规则不写在程序里**——它直接解释 EverEdit 分发格式的
 `syntax/*.mac` 与 `theme/*.ini`，所以"像不像"可以逐条数出来，不用靠肉眼比。
@@ -7,8 +7,14 @@
 
 ## 装与用
 
-到 [Releases](../../releases/latest) 下载 `miniedit_1.2.1_setup.exe`，双击安装，可自选目录，装完自动启动。
+到 [Releases](../../releases/latest) 下载 `miniedit_1.3.0_setup.exe`，双击安装，可自选目录，装完自动启动。
 安装后开始菜单和桌面会有 MiniEdit。第一次启动会打开两个示例文件，直接敲字就能编辑。
+工具条是图标按钮，悬停有名称和快捷键提示。
+
+安装包 **108 MB**，装完约 **311 MB**，其中**我们的代码只有 1.5 MB**（`resources/app.asar`）——
+剩下全是 Electron 自带的 Chromium + Node 运行时（`MiniEdit.exe` 本体未压缩就有 238 MB）。
+已经把能省的地方都省了：`compression: maximum`（LZMA）、47 MB 的多语言包裁到只剩简体中文和英文
+（`locales/` 从 49 MB 降到 1.2 MB）。要再往下，只有不用 Chromium 一条路，见文末「体积这件事」。
 
 | 操作 | 快捷键 |
 |---|---|
@@ -67,7 +73,7 @@ npm start           # 桌面模式（需要 electron）
 npm run verify      # 打印每个语法文件的解释结果
 npm run test:fold   # 折叠区间的不变量检查
 npm run unsupported # 未支持语句排序（语句名 × 文件数）
-npm run dist        # 出安装包 → dist/miniedit_1.2.1_setup.exe
+npm run dist        # 出安装包 → dist/miniedit_1.3.0_setup.exe
 ```
 
 安装包不进仓库（约 117 MB），只挂在 Releases 上；`dist/` 已在 `.gitignore` 里。
@@ -142,6 +148,24 @@ npm run dist        # 出安装包 → dist/miniedit_1.2.1_setup.exe
 
 改完的结果（`npm run verify` 可复现）：67/67 完整解释，未支持 0 条，近似 7 处；
 规则总量只增不减 —— 条目 +41 条、关键字 +19 组，没有哪个语法少了解释出来的规则。
+
+## 体积这件事
+
+EverEdit 的安装包不到 5 MB，因为它是一个纯 Win32 C++ 程序，编辑器控件、语法引擎、渲染全是自己写的，
+没有第三方运行时。MiniEdit 反过来：界面是 HTML/CSS/JS，跑在 Chromium 里。
+
+| 部分 | 未压缩 | 说明 |
+|---|---|---|
+| `MiniEdit.exe`（Chromium + Node） | 238 MB | Electron 的硬成本，压不下去 |
+| `dxcompiler.dll` / `swiftshader` / `d3dcompiler` | 34 MB | GPU / WebGPU 着色器编译，删了在无独显机器上可能花屏 |
+| `resources.pak` / `icudtl.dat` | 23 MB | Chromium 资源与 ICU 数据 |
+| `locales/` | 1.2 MB | 已从 49 MB 裁到 zh-CN + en-US |
+| **我们的代码（`app.asar`）** | **1.5 MB** | 解释器 + 界面 + 原版 75 个 `.mac`、24 套主题 |
+
+所以 Electron 路线的安装包下限就在 100 MB 上下（LZMA 压完 108 MB）。想接近 5 MB，需要换成
+**WebView2 外壳**：界面代码一行不用改，把主进程的文件对话框、编码读写、菜单换成 Rust/C++ 实现，
+安装包可以做到 3–6 MB——代价是依赖系统的 Edge WebView2 运行时（Win11 自带，Win10 需装过 Edge），
+不再自带浏览器。这条路线还没做，当前版本走的是"自带运行时、双击就能跑"的取舍。
 
 ## 没做的，以及为什么
 
