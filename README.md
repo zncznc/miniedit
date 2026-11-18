@@ -91,7 +91,8 @@ npm run dist        # 出安装包 → dist/miniedit_1.2.0_setup.exe
 5. 截一张图后退出。
 
 `npm run dist` 出来的包已用这条链路验证过：`SMOKE_IO ok=true`、24 套主题、67 个语法、
-`SMOKE_FOLD removed=4 shrunk=true arrow="▸" restored=true`。
+`SMOKE_FOLD removed=21 shrunk=true arrow="▸" restored=true`（在自带的 `assets/samples/demo.php`
+上折 `class Greeter` 那一块，21 行收进去、正文逐字复原）。
 
 ## 折叠是怎么做的
 
