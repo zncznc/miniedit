@@ -52,6 +52,10 @@ function bundle() {
   const themes = fs.readdirSync(themeDir).filter((f) => f.toLowerCase().endsWith('.ini')).sort();
   const files = {};
   for (const f of syntaxes) files[f] = readText(path.join(synDir, f));
+  // .kwd 是外挂关键字表，php.mac 用 AddWordFromFile 按文件名取
+  for (const f of fs.readdirSync(synDir).filter((x) => x.toLowerCase().endsWith('.kwd'))) {
+    files[f] = readText(path.join(synDir, f));
+  }
   const themeFiles = {};
   for (const f of themes) themeFiles[f] = readText(path.join(themeDir, f));
   let settings = '';

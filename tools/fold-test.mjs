@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { interpret } from '../js/core/mac.mjs';
-import { foldRegions, visibleRows } from '../js/core/fold.mjs';
+import { foldRegions, foldMetas, visibleRows } from '../js/core/fold.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -19,6 +19,7 @@ const dec = (buf) => {
 
 const files = {};
 for (const f of fs.readdirSync(SYN)) if (f.endsWith('.mac')) files[f] = dec(fs.readFileSync(path.join(SYN, f)));
+for (const f of fs.readdirSync(SYN)) if (f.toLowerCase().endsWith('.kwd')) files[f] = dec(fs.readFileSync(path.join(SYN, f)));
 
 let fail = 0;
 const check = (name, cond, detail = '') => {
@@ -30,7 +31,7 @@ const check = (name, cond, detail = '') => {
 
 function metaOf(syntax) {
   const r = interpret(files[syntax], { files, file: syntax });
-  return (r.root && r.root.meta) || {};
+  return r.root ? foldMetas(r.root) : [];
 }
 
 function linesOf(file) {
@@ -40,6 +41,7 @@ function linesOf(file) {
 for (const [file, syntax] of [
   ['samples/hello.c', 'c99.mac'],
   ['samples/demo.py', 'python.mac'],
+  ['samples/demo.php', 'php.mac'],
 ]) {
   const lines = linesOf(file);
   const regions = foldRegions(lines, metaOf(syntax), 4);
@@ -75,9 +77,9 @@ for (const [file, syntax] of [
 let declared = 0;
 let fallback = 0;
 for (const name of Object.keys(files)) {
-  if (name === 'const.mac') continue;
-  const m = metaOf(name);
-  if ((m.fold && m.fold[0]) || m.indent || String(m.foldingmethod || '').toLowerCase() === 'indent') declared++;
+  if (!name.endsWith('.mac') || name === 'const.mac') continue;
+  const metas = metaOf(name);
+  if (metas.length) declared++;
   else fallback++;
 }
 console.log(`\n折叠规则来源：${declared} 个语法自带声明，${fallback} 个按缩进兜底`);

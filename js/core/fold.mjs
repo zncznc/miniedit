@@ -75,20 +75,51 @@ function indentRegions(lines, tabSize, startRe) {
   return out;
 }
 
-export function foldRegions(lines, meta, tabSize = 4) {
-  if (!Array.isArray(lines) || lines.length < 2) return [];
-  const m = meta || {};
-  const foldStart = toRe(m.fold && m.fold[0]);
-  const foldEnd = toRe((m.fold && m.fold[1]) || (m.unfold && m.unfold[0]));
-  const indentStart = toRe(m.indent && m.indent[0]);
-  const method = String(m.foldingmethod || '').toLowerCase();
+// 折叠声明不总在根上：php.mac 的根是 html 解析器（按标签折），PHP 代码的 `{` 规则挂在
+// `rPhp` 区域上。所以把整棵树上的声明都收集起来，按「根优先、声明先后」的顺序试。
+export function foldMetas(root) {
+  const out = [];
+  const seen = new Set();
+  const walk = (n) => {
+    const m = (n && n.meta) || {};
+    const has = (m.fold && m.fold[0]) || (m.indent && m.indent[0]) || m.foldingmethod;
+    if (has) {
+      const key = JSON.stringify([m.fold, m.unfold, m.indent, m.foldingmethod]);
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(m);
+      }
+    }
+    for (const r of n.regions || []) walk(r);
+  };
+  walk(root);
+  return out;
+}
 
-  let regions;
-  if (foldStart) {
-    regions = pairRegions(lines, foldStart, foldEnd, tabSize);
-  } else if (method === 'indent' || indentStart) {
-    regions = indentRegions(lines, tabSize, indentStart);
-  } else {
+export function foldRegions(lines, metaOrList, tabSize = 4) {
+  if (!Array.isArray(lines) || lines.length < 2) return [];
+  const metas = Array.isArray(metaOrList) ? metaOrList : [metaOrList || {}];
+  if (!metas.length) metas.push({});
+
+  let regions = [];
+  let usedDeclaration = false;
+  for (const m of metas) {
+    const foldStart = toRe(m.fold && m.fold[0]);
+    const foldEnd = toRe((m.fold && m.fold[1]) || (m.unfold && m.unfold[0]));
+    const indentStart = toRe(m.indent && m.indent[0]);
+    const method = String(m.foldingmethod || '').toLowerCase();
+    if (!foldStart && !indentStart && method !== 'indent') continue;
+    const got = foldStart
+      ? pairRegions(lines, foldStart, foldEnd, tabSize)
+      : indentRegions(lines, tabSize, indentStart);
+    if (got.length) {
+      regions = got;
+      usedDeclaration = true;
+      break;
+    }
+  }
+
+  if (!usedDeclaration) {
     // 该语法没声明折叠规则：按缩进兜底，并在界面上标明是兜底
     regions = indentRegions(lines, tabSize, null);
   }

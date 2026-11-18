@@ -1,4 +1,4 @@
-# MiniEdit 1.1.0
+# MiniEdit 1.2.0
 
 一个能装进 Windows 的代码编辑器。**高亮规则不写在程序里**——它直接解释 EverEdit 分发格式的
 `syntax/*.mac` 与 `theme/*.ini`，所以"像不像"可以逐条数出来，不用靠肉眼比。
@@ -7,7 +7,7 @@
 
 ## 装与用
 
-到 [Releases](../../releases/latest) 下载 `miniedit_1.1.0_setup.exe`，双击安装，可自选目录，装完自动启动。
+到 [Releases](../../releases/latest) 下载 `miniedit_1.2.0_setup.exe`，双击安装，可自选目录，装完自动启动。
 安装后开始菜单和桌面会有 MiniEdit。第一次启动会打开两个示例文件，直接敲字就能编辑。
 
 | 操作 | 快捷键 |
@@ -27,12 +27,15 @@
 
 三个判断都落在可复核的数据上：
 
-- **语法**：67 个独立语法 + 7 个片段文件，全部来自原版 `syntax/*.mac`；解释器完整加载 60 个，
-  累计 53 条语句未支持。缺口在界面上点红色数字能看到具体行号与原因。
+- **语法**：67 个独立语法 + 7 个片段文件，全部来自原版 `syntax/*.mac`；解释器把 67 个全部
+  完整解释，未支持语句 0 条，另有 7 处走降级链（PCRE 递归、条件组、宽松量词）做的近似实现。
 - **配色**：24 套 `theme/*.ini` 全部可用，每套的 token 颜色由 `const.mac` 的常量表映射生成。
 - **行为开关**：`setting.ini` 读到 49 个键，行号、当前行、自动缩进、自动配对、Tab 宽度都按它走。
-- **折叠**：50 个语法自带 `FoldText` / `IndentText` / `FoldingMethod` 声明，照声明折；
-  其余 23 个按缩进兜底，界面上会标出来源。
+- **折叠**：52 个语法自带 `FoldText` / `IndentText` / `FoldingMethod` 声明，照声明折；
+  其余 21 个按缩进兜底，界面上会标出来源。声明挂在区域上也算数——`php.mac` 的根是 HTML
+  解析器（按标签折），PHP 代码的 `{` 规则挂在 `rPhp` 区域，两套规则都会被考虑。
+- **外挂词表**：`php.mac` 的关键字不在 `.mac` 里，而在 `php.kwd` 的四段（关键字 / 内置函数 /
+  魔术常量，颜色各不同），解释器按 `AddWordFromFile` 真去读这份文件。
 
 ## 结构
 
@@ -44,10 +47,11 @@ desktop/reference.cjs 只读参考数据，把 syntax/theme 当配置读
 js/core/mac.mjs       .mac 文件解释器（词法 + 中间表示）
 js/core/highlight.mjs 逐行分词器（支持跨行区域与捕获组）
 js/core/theme.mjs     theme/*.ini → CSS 变量与 token 类
-js/core/fold.mjs      折叠区间（配对法 / 缩进法）
+js/core/fold.mjs      折叠区间（配对法 / 缩进法，声明可挂在区域上）
 js/app.js             编辑器主体：标签、渲染、查找替换、文件操作
 assets/reference/     随包分发的 syntax / theme / setting.ini
 tools/verify.mjs      覆盖率统计，`npm run verify`
+tools/unsupported.mjs 未支持语句按「语句名 × 文件数」排序，`npm run unsupported`
 tools/fold-test.mjs   折叠区间的不变量检查，`npm run test:fold`
 tools/crop-png.mjs    裁剪放大截图（只依赖 zlib），查像素细节用
 ```
@@ -58,11 +62,12 @@ tools/crop-png.mjs    裁剪放大截图（只依赖 zlib），查像素细节�
 
 ```bash
 npm install
-npm run serve     # 浏览器模式，http://127.0.0.1:5178
-npm start         # 桌面模式（需要 electron）
-npm run verify    # 打印每个语法文件的解释结果
-npm run test:fold # 折叠区间的不变量检查
-npm run dist      # 出安装包 → dist/miniedit_1.1.0_setup.exe
+npm run serve       # 浏览器模式，http://127.0.0.1:5178
+npm start           # 桌面模式（需要 electron）
+npm run verify      # 打印每个语法文件的解释结果
+npm run test:fold   # 折叠区间的不变量检查
+npm run unsupported # 未支持语句排序（语句名 × 文件数）
+npm run dist        # 出安装包 → dist/miniedit_1.2.0_setup.exe
 ```
 
 安装包不进仓库（约 117 MB），只挂在 Releases 上；`dist/` 已在 `.gitignore` 里。
@@ -102,6 +107,36 @@ npm run dist      # 出安装包 → dist/miniedit_1.1.0_setup.exe
 `FoldingMethod="indent"` 缩进法），没声明才按缩进兜底——这条"来源"在界面上可见，
 不是黑箱。
 
+## 从 53 条未支持，到 0 条
+
+先把 53 条按「语句名 × 出现文件数」排序（`node tools/unsupported.mjs`），结果很反直觉：
+看着像 53 个坑，其实是 6 个根因，而且大头不是新语法，是**一处失败带崩一片**。
+
+| 根因 | 条数 | 说明 |
+|---|---|---|
+| 正则写法 JS 的 `RegExp` 不接受 | 7 | PCRE 递归 `(?R)`、条件组 `(?(?=…))`、`\|?` 这种宽松量词、多写一个右括号 |
+| 上一行失败带出的级联 | 27 | `Set iX = CreateItem(...)` 失败后，后面每处 `AddItem(iX)` 都报"未定义标识符" |
+| VBScript 过程 `Sub AddAutoCaseWord` | 8 | 原版脚本段：`wWord.AutoCase=True` 后重新 `AddWord` |
+| 标识符大小写不一致 | 8 | 声明 `rLine20`、调用写 `rline20`——VBScript 本来就不区分大小写 |
+| `AddWordFromFile` + `SCRIPT_PATH` 拼路径 | 2 | 关键字表是外挂的 `php.kwd` |
+| 语句多写一个右括号 | 1 | 原版宿主容忍，JS 会整条作废 |
+
+处理办法对应六处改动：
+
+- **正则降级链**：原样编译 → 宽松量词按字面量 → 去掉多余右括号 → 递归降为一层 → 条件组降为
+  普通分组。每降一级都在报告里留一条"近似理解"，和"不支持"分开记。真正救不回来的正则用
+  `(?!)`（永不匹配）占位，规则树结构保持完整。
+- **占位不级联**：`CreateItem` / `Set` 求值失败时给一个死节点，后面的 `AddItem` 变成无操作，
+  错误数才等于真实缺口数。
+- **标识符不区分大小写**：环境变量统一按小写存，这是 VBScript 的语义。
+- **脚本过程**：先登记本文件所有 `Sub`/`Function`（nsis 的定义写在调用之后），再执行调用。
+- **内置常量与外挂词表**：`SCRIPT_PATH` 指语法目录，`AddWordFromFile` 按文件名取 `php.kwd`，
+  并保留它按 `#<颜色>,..` 分段的结构。
+- **`&` 拼接**：表达式层的字符串加法。
+
+改完的结果（`npm run verify` 可复现）：67/67 完整解释，未支持 0 条，近似 7 处；
+规则总量只增不减 —— 条目 +41 条、关键字 +19 组，没有哪个语法少了解释出来的规则。
+
 ## 没做的，以及为什么
 
 | 能力 | 状态 | 原因 |
@@ -112,11 +147,15 @@ npm run dist      # 出安装包 → dist/miniedit_1.1.0_setup.exe
 | 大文件 | 部分 | 高亮上限 4000 行，超过部分按纯文本显示；打开上限 32MB |
 | 文件关联 | 未做 | 安装器不抢 `.txt` 默认程序；需要时可右键"打开方式"选择 MiniEdit |
 
-## 三个踩过的坑
+## 踩过的坑
 
 - `CreateRegion` 第 4 个参数不是"是否跨行"，判据是结束符里是否含 `$`；
 - `setting.ini` 是 UTF-16LE，`.mac` 里还有 GBK，编码要逐个判而不是统一按 UTF-8；
-- 主题键名大小写与 `const.mac` 的常量名不一致，匹配时统一转小写。
+- 主题键名大小写与 `const.mac` 的常量名不一致，匹配时统一转小写；
+- VBScript 的标识符不区分大小写——`rline20` 和 `rLine20` 是同一个变量，按大小写敏感查会漏掉一整个区域；
+- `Sub` 过程可以写在调用之后（`nsis.mac` 就是这样），所以要先登记、再执行；
+- `php.kwd` 不是「一行一个词」的平表：它按 `#16,1,0` 这样的段头分段，第一个数是颜色索引，
+  整份表有四段、四种颜色，当成一段处理会把内置函数全涂成关键字色。
 
 ## 数据来源
 

@@ -1,7 +1,7 @@
 import { interpret } from './core/mac.mjs';
 import { parseIni, buildTokenCss, themeVars } from './core/theme.mjs';
 import { compile, highlightLines, spansToHtml, escapeHtml } from './core/highlight.mjs';
-import { foldRegions, visibleRows } from './core/fold.mjs';
+import { foldRegions, foldMetas, visibleRows } from './core/fold.mjs';
 
 const $ = (id) => document.getElementById(id);
 const bridge = window.miniedit || null;
@@ -371,7 +371,7 @@ function lineOfOffset(starts, offset) {
 function foldsOf(tab, lines, entry) {
   const cache = tab.foldCache;
   if (cache && cache.text === tab.text && cache.syntax === tab.syntax) return cache;
-  const meta = (entry && entry.root && entry.root.meta) || {};
+  const meta = entry && entry.root ? foldMetas(entry.root) : [];
   const regions = foldRegions(lines, meta, state.tabSize);
   const byStart = new Map();
   for (const r of regions) if (!byStart.has(r.start)) byStart.set(r.start, r);
@@ -519,11 +519,14 @@ function updateParseHint(entry, lineCount, cap) {
   }
   const s = entry.stats;
   const errs = entry.errors.length;
+  const notes = (entry.notes || []).length;
   el.parseHint.innerHTML =
     `规则 <b>${s.regions}</b> 区 / <b>${s.items}</b> 条 → 高亮 <b>${Math.min(lineCount, cap)}</b> 行 · ` +
     (errs ? `<b style="color:#c0392b;cursor:pointer">${errs} 处未支持</b>` : '全部语句已解释') +
+    (notes ? ` · <b style="color:#b8860b;cursor:pointer">${notes} 处近似</b>` : '') +
     ` · ${state.lastRenderMs.toFixed(0)} ms`;
   el.parseHint.dataset.errors = String(errs);
+  el.parseHint.dataset.notes = String(notes);
 }
 
 function syncScroll() {
@@ -1207,8 +1210,14 @@ function bindUi() {
     const entry = tab && getSyntax(tab.syntax);
     if (!entry) return;
     if (!entry.errors.length) {
-      $('errTitle').textContent = '全部语句已解释';
-      $('errBody').innerHTML = `<p>${tab.syntax} 里没有未支持的语句。规则数：${entry.stats.regions} 个区域、${entry.stats.items} 个条目、${entry.stats.words} 组关键字。</p>`;
+      const notes = entry.notes || [];
+      $('errTitle').textContent = notes.length ? `全部语句已解释（${notes.length} 处近似）` : '全部语句已解释';
+      const head = `<p>${tab.syntax} 里没有未支持的语句。规则数：${entry.stats.regions} 个区域、${entry.stats.items} 个条目、${entry.stats.words} 组关键字。</p>`;
+      const body = notes.length
+        ? '<p>下面这些语句原版引擎能直接吃，JS 的正则要吃就得降一级——按「近似实现」记，不算 Unknown：</p><ul>' +
+          notes.map((n) => `<li>第 ${n.line} 行 · ${escapeHtml(n.reason)}<br><code>${escapeHtml(n.text)}</code></li>`).join('') + '</ul>'
+        : '';
+      $('errBody').innerHTML = head + body;
     } else {
       $('errTitle').textContent = `${tab.syntax}：${entry.errors.length} 处未支持`;
       $('errBody').innerHTML = '<p>这些语句被跳过，对应规则不会生效——按证据纪律，它们属于 Unknown，而不是“不存在”：</p><ul>' +
