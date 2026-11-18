@@ -308,6 +308,19 @@ function runSmoke() {
   win.webContents.once('did-finish-load', () => {
     setTimeout(async () => {
       try {
+        // 允许用 MINIEDIT_SMOKE_SIZE=720x480 按最窄窗口截图，验证工具条不被挤扁
+        const size = String(process.env.MINIEDIT_SMOKE_SIZE || '');
+        const m = size.match(/^(\d+)x(\d+)$/);
+        if (m) {
+          win.setContentSize(Number(m[1]), Number(m[2]));
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        // 系统缩放 / 用户放大时 CSS 像素会变少，工具条不能因此被压扁
+        const zoom = Number(process.env.MINIEDIT_SMOKE_ZOOM || 0);
+        if (zoom > 0) {
+          win.webContents.setZoomFactor(zoom);
+          await new Promise((r) => setTimeout(r, 400));
+        }
         // 走完整条 IPC 链路做一次真实读写：GBK 中文 + CRLF
         const roundTrip = await win.webContents.executeJavaScript(`(async () => {
           const tmp = ${JSON.stringify(path.join(app.getPath('temp'), 'miniedit-selftest.txt'))};
@@ -376,6 +389,37 @@ function runSmoke() {
           };
         })()`);
         console.log('SMOKE_STATE ' + JSON.stringify(info));
+
+        // 布局：按钮文字必须单行，不被裁掉；工具条溢出时走横向滚动而不是压扁按钮
+        const layout = await win.webContents.executeJavaScript(`(() => {
+          const check = (bar) => {
+            const btns = [...bar.querySelectorAll('button')];
+            const bad = btns.filter((b) => {
+              const cs = getComputedStyle(b);
+              return cs.whiteSpace !== 'nowrap' || b.scrollHeight > b.clientHeight + 1 || b.scrollWidth > b.clientWidth + 1;
+            }).map((b) => b.textContent.trim());
+            return {
+              barW: bar.clientWidth,
+              contentW: bar.scrollWidth,
+              scrolls: bar.scrollWidth > bar.clientWidth,
+              overflowX: getComputedStyle(bar).overflowX,
+              buttons: btns.length,
+              wrapped: bad,
+              ok: bad.length === 0,
+            };
+          };
+          const out = check(document.querySelector('.toolbar'));
+          // 查找栏默认隐藏，展开量一次再收起
+          const fb = document.getElementById('findbar');
+          const btn = document.getElementById('btnFind');
+          const wasHidden = fb.hidden;
+          btn.click();
+          out.findbar = check(fb);
+          if (wasHidden) btn.click();
+          out.ok = out.ok && out.findbar.ok;
+          return out;
+        })()`);
+        console.log('SMOKE_LAYOUT ' + JSON.stringify(layout));
         const img = await win.webContents.capturePage();
         fs.writeFileSync(process.env.MINIEDIT_SMOKE, img.toPNG());
         console.log('SMOKE_OK');

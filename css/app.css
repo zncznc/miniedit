@@ -84,6 +84,7 @@ body {
 }
 .tab .dirty { color: var(--accent); font-weight: 600; }
 .tab .close {
+  flex: 0 0 auto;
   border: 0;
   background: transparent;
   color: inherit;
@@ -105,6 +106,11 @@ body {
   border-bottom: 1px solid var(--chrome-line);
   background: var(--chrome);
   flex: 0 0 auto;
+  /* 窗口变窄时不要让按钮被挤扁，宁可横向滚动 */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 .toolbar select,
 .toolbar button {
@@ -115,14 +121,26 @@ body {
   border-radius: 4px;
   padding: 3px 6px;
   height: 24px;
+  /* 中文按钮的 min-content 只有一个字宽，不禁用收缩会被压成竖排并裁掉 */
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .toolbar button { cursor: pointer; }
 .toolbar button:hover { border-color: var(--accent); color: var(--accent); }
 .toolbar select:focus-visible,
 .toolbar button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
-.sep { width: 1px; height: 16px; background: var(--chrome-line); margin: 0 4px; }
-.spacer { flex: 1; }
-.hint { color: var(--chrome-muted); font-variant-numeric: tabular-nums; }
+.sep { flex: 0 0 auto; width: 1px; height: 16px; background: var(--chrome-line); margin: 0 4px; }
+.spacer { flex: 1 1 auto; min-width: 4px; }
+.hint {
+  color: var(--chrome-muted);
+  font-variant-numeric: tabular-nums;
+  /* 空间不够时先省略提示文字，而不是去压按钮 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .hint b { color: var(--chrome-fg); font-weight: 500; }
 
 /* 编辑区 */
@@ -226,6 +244,10 @@ body {
   border-top: 1px solid var(--chrome-line);
   background: var(--chrome);
   flex: 0 0 auto;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 .findbar[hidden] { display: none; }
 .findbar input[type="text"] {
@@ -235,9 +257,11 @@ body {
   border-radius: 4px;
   background: var(--bg);
   color: var(--chrome-fg);
-  width: 180px;
+  width: auto;
+  flex: 1 1 160px;
+  min-width: 80px;
 }
-.findbar label { color: var(--chrome-muted); display: flex; align-items: center; gap: 3px; }
+.findbar label { color: var(--chrome-muted); display: flex; align-items: center; gap: 3px; flex: 0 0 auto; white-space: nowrap; }
 .findbar button {
   font: inherit;
   color: var(--chrome-fg);
@@ -246,9 +270,11 @@ body {
   border-radius: 4px;
   padding: 3px 8px;
   cursor: pointer;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .findbar button:hover { border-color: var(--accent); color: var(--accent); }
-.findbar .count { color: var(--chrome-muted); min-width: 60px; }
+.findbar .count { color: var(--chrome-muted); min-width: 60px; flex: 0 0 auto; white-space: nowrap; }
 
 /* 状态栏 */
 .status {

@@ -1,4 +1,4 @@
-# MiniEdit 1.2.0
+# MiniEdit 1.2.1
 
 一个能装进 Windows 的代码编辑器。**高亮规则不写在程序里**——它直接解释 EverEdit 分发格式的
 `syntax/*.mac` 与 `theme/*.ini`，所以"像不像"可以逐条数出来，不用靠肉眼比。
@@ -7,7 +7,7 @@
 
 ## 装与用
 
-到 [Releases](../../releases/latest) 下载 `miniedit_1.2.0_setup.exe`，双击安装，可自选目录，装完自动启动。
+到 [Releases](../../releases/latest) 下载 `miniedit_1.2.1_setup.exe`，双击安装，可自选目录，装完自动启动。
 安装后开始菜单和桌面会有 MiniEdit。第一次启动会打开两个示例文件，直接敲字就能编辑。
 
 | 操作 | 快捷键 |
@@ -67,7 +67,7 @@ npm start           # 桌面模式（需要 electron）
 npm run verify      # 打印每个语法文件的解释结果
 npm run test:fold   # 折叠区间的不变量检查
 npm run unsupported # 未支持语句排序（语句名 × 文件数）
-npm run dist        # 出安装包 → dist/miniedit_1.2.0_setup.exe
+npm run dist        # 出安装包 → dist/miniedit_1.2.1_setup.exe
 ```
 
 安装包不进仓库（约 117 MB），只挂在 Releases 上；`dist/` 已在 `.gitignore` 里。
@@ -88,7 +88,12 @@ npm run dist        # 出安装包 → dist/miniedit_1.2.0_setup.exe
 2. 点一下行号栏的三角，确认可见行数正好少了 `end-start` 行、三角变成 `▸`、状态栏出现"折叠 N 处"；
 3. 再派发一次 `beforeinput`，确认折叠自动展开且正文与折叠前逐字一致（`restored: true`）；
 4. 抓取界面状态（标签、规则数、主题数、语法数、缩进线数量）；
-5. 截一张图后退出。
+5. 量一遍工具条和查找栏：每个按钮的文字必须单行、`scrollHeight` 不超出按钮高度，装不下时
+   允许横向滚动而不是把按钮压扁（`SMOKE_LAYOUT ok=true`）；
+6. 截一张图后退出。
+
+窄窗口和缩放也能量：`MINIEDIT_SMOKE_SIZE=720x480` 把窗口压到最小宽度，
+`MINIEDIT_SMOKE_ZOOM=1.8` 模拟系统缩放 / 页面放大。
 
 `npm run dist` 出来的包已用这条链路验证过：`SMOKE_IO ok=true`、24 套主题、67 个语法、
 `SMOKE_FOLD removed=21 shrunk=true arrow="▸" restored=true`（在自带的 `assets/samples/demo.php`

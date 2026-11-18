@@ -1,7 +1,7 @@
 {
   "name": "miniedit",
   "productName": "MiniEdit",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "MiniEdit — 数据驱动的代码编辑器，直接读取 EverEdit 分发格式的语法与配色",
   "main": "desktop/main.cjs",
   "type": "module",
