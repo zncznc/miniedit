@@ -4,7 +4,7 @@
 !include "FileFunc.nsh"
 
 !define APPNAME "MiniEdit"
-!define VERSION "1.4.0"
+!define VERSION "1.4.1"
 !define PUBLISHER "MiniEdit"
 !define EXE "MiniEdit.exe"
 

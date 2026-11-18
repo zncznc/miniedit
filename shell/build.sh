@@ -6,6 +6,18 @@ cd "$(dirname "$0")"
 
 cargo build --release
 
+# 防回归：PE 子系统必须是 GUI(2)。GNU 工具链默认 console(3)，双击会多弹一个黑框。
+node -e '
+const fs = require("fs");
+const b = fs.readFileSync("target/release/miniedit-shell.exe");
+const sub = b.readUInt16LE(b.readUInt32LE(0x3c) + 24 + 68);
+if (sub !== 2) {
+  console.error("PE 子系统是 " + sub + "，应为 2（GUI）；检查 main.rs 顶上的 windows_subsystem 属性");
+  process.exit(1);
+}
+console.log("PE 子系统 = GUI(2) ✓");
+'
+
 MAKENSIS="${MAKENSIS:-/c/Program Files (x86)/NSIS/makensis.exe}"
 if [ ! -x "$MAKENSIS" ]; then
   MAKENSIS="$(command -v makensis || true)"

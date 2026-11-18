@@ -1,4 +1,4 @@
-# MiniEdit 1.4.0
+# MiniEdit 1.4.1
 
 一个能装进 Windows 的代码编辑器。**高亮规则不写在程序里**——它直接解释 EverEdit 分发格式的
 `syntax/*.mac` 与 `theme/*.ini`，所以"像不像"可以逐条数出来，不用靠肉眼比。
@@ -7,11 +7,11 @@
 
 ## 装与用
 
-到 [Releases](../../releases/latest) 下载 `miniedit_1.4.0_setup.exe`，双击安装，可自选目录，装完自动启动。
+到 [Releases](../../releases/latest) 下载 `miniedit_1.4.1_setup.exe`，双击安装，可自选目录，装完自动启动。
 安装后开始菜单和桌面会有 MiniEdit。第一次启动会打开两个示例文件，直接敲字就能编辑。
 工具条是图标按钮，悬停有名称和快捷键提示。
 
-**安装包 848 KB，装完 2.19 MB**——用的是系统自带的 Edge WebView2 渲染界面，不再自带浏览器。
+**安装包 846 KB，装完 2.19 MB**——用的是系统自带的 Edge WebView2 渲染界面，不再自带浏览器。
 （Win11 自带 WebView2；Win10 装过 Edge 就有。）上一版走 Electron，安装包 108 MB、装完 311 MB，
 代码同样是这些，差别全在运行时。两个外壳都在仓库里，见文末「两个外壳」。
 
@@ -72,7 +72,7 @@ tools/crop-png.mjs    裁剪放大截图（只依赖 zlib），查像素细节�
 ## 开发与打包
 
 ```bash
-# WebView2 外壳（默认，出 848 KB 安装包）
+# WebView2 外壳（默认，出 846 KB 安装包）
 cd shell && ./build.sh          # cargo build --release + makensis
 MINIEDIT_WEB=<仓库根> MINIEDIT_SMOKE_SHELL=1 shell/target/release/miniedit-shell.exe
 
@@ -83,7 +83,7 @@ npm start           # 桌面模式（需要 electron）
 npm run verify      # 打印每个语法文件的解释结果
 npm run test:fold   # 折叠区间的不变量检查
 npm run unsupported # 未支持语句排序（语句名 × 文件数）
-npm run dist        # 出安装包 → dist/miniedit_1.4.0_setup.exe
+npm run dist        # 出安装包 → dist/miniedit_1.4.1_setup.exe
 ```
 
 安装包不进仓库，只挂在 Releases 上；`dist/`、`dist-shell/` 已在 `.gitignore` 里。
@@ -164,7 +164,7 @@ npm run dist        # 出安装包 → dist/miniedit_1.4.0_setup.exe
 
 | 外壳 | 目录 | 安装包 | 装完 | 依赖 |
 |---|---|---|---|---|
-| **WebView2（默认）** | `shell/`（Rust + wry/tao） | **848 KB** | 2.19 MB | 系统的 Edge WebView2 运行时 |
+| **WebView2（默认）** | `shell/`（Rust + wry/tao） | **846 KB** | 2.19 MB | 系统的 Edge WebView2 运行时 |
 | Electron（备用） | `desktop/` + `server.mjs` | 108 MB | 311 MB | 无，自带 Chromium |
 
 **为什么能小两个数量级**：EverEdit 不到 5 MB，是因为它纯 Win32、渲染和语法引擎都自己写。MiniEdit 的
@@ -176,7 +176,7 @@ npm run dist        # 出安装包 → dist/miniedit_1.4.0_setup.exe
 | `MiniEdit.exe`（Rust 外壳） | 955 KB |
 | `WebView2Loader.dll` | 162 KB |
 | 前端 + 75 个 `.mac` + 24 套主题 | 1.3 MB |
-| 安装包（LZMA 压完） | **848 KB** |
+| 安装包（LZMA 压完） | **846 KB** |
 
 Electron 版为保留"没有 WebView2 也能跑"这条退路，一行没删；`npm run dist` 仍可出 108 MB 的包。
 
@@ -211,7 +211,10 @@ WebView2 版用 tao，没有跨平台菜单栏 API，所以**没有菜单条**�
   但运行时**必须把 `WebView2Loader.dll` 放到 exe 旁边**，否则进程 236 毫秒就静默退出，一个字都不输出；
 - tao 0.30 的 `WindowEvent::CloseRequested` 是空变体，**拦不住关窗**（winit 那些版本才有 `api`），
   所以"未保存要提示"改成了恢复快照；也没有菜单模块，`with_menu` 只收裸 `HMENU`；
-- 原生对话框会自己跑消息循环，从 WebView2 的 IPC 回调里同步弹可能卡死，要丢到独立线程再回包。
+- 原生对话框会自己跑消息循环，从 WebView2 的 IPC 回调里同步弹可能卡死，要丢到独立线程再回包；
+- `windows-gnu` 工具链默认按 **console** 子系统链接，双击 exe 会先弹一个黑框（不是 cmd 的锅）。
+  `main.rs` 顶上必须有 `#![windows_subsystem = "windows"]`，编完可以用 PE 头里的 subsystem 字段核对：
+  `0x20b` magic 之后偏移 `+68` 的值为 `2` 才是 GUI，`3` 是控制台。
 
 ## 数据来源
 

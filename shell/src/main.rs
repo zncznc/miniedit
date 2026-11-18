@@ -1,5 +1,9 @@
 // MiniEdit 的 WebView2 外壳：界面仍是 index.html + js/app.js，
 // 只是把 Electron 主进程那层换成 wry + tao + 原生对话框。
+//
+// 没有这一行，GNU 工具链默认按 console 子系统链接，双击就会先弹一个黑框；
+// 改成 windows 子系统后 PE 头里是 2，才是一个正常的 GUI 程序。
+#![windows_subsystem = "windows"]
 
 mod bridge;
 mod bundle;
