@@ -9,7 +9,7 @@ cargo build --release
 # 防回归：PE 子系统必须是 GUI(2)。GNU 工具链默认 console(3)，双击会多弹一个黑框。
 node -e '
 const fs = require("fs");
-const b = fs.readFileSync("target/release/miniedit-shell.exe");
+const b = fs.readFileSync("target/release/MiniEdit.exe");
 const sub = b.readUInt16LE(b.readUInt32LE(0x3c) + 24 + 68);
 if (sub !== 2) {
   console.error("PE 子系统是 " + sub + "，应为 2（GUI）；检查 main.rs 顶上的 windows_subsystem 属性");

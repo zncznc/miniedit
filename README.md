@@ -1,4 +1,4 @@
-# MiniEdit 1.4.1
+# MiniEdit 1.5.0
 
 一个能装进 Windows 的代码编辑器。**高亮规则不写在程序里**——它直接解释 EverEdit 分发格式的
 `syntax/*.mac` 与 `theme/*.ini`，所以"像不像"可以逐条数出来，不用靠肉眼比。
@@ -7,11 +7,11 @@
 
 ## 装与用
 
-到 [Releases](../../releases/latest) 下载 `miniedit_1.4.1_setup.exe`，双击安装，可自选目录，装完自动启动。
+到 [Releases](../../releases/latest) 下载 `miniedit_1.5.0_setup.exe`，双击安装，可自选目录，装完自动启动。
 安装后开始菜单和桌面会有 MiniEdit。第一次启动会打开两个示例文件，直接敲字就能编辑。
 工具条是图标按钮，悬停有名称和快捷键提示。
 
-**安装包 846 KB，装完 2.19 MB**——用的是系统自带的 Edge WebView2 渲染界面，不再自带浏览器。
+**安装包 865 KB，装完 2.19 MB**——用的是系统自带的 Edge WebView2 渲染界面，不再自带浏览器。
 （Win11 自带 WebView2；Win10 装过 Edge 就有。）上一版走 Electron，安装包 108 MB、装完 311 MB，
 代码同样是这些，差别全在运行时。两个外壳都在仓库里，见文末「两个外壳」。
 
@@ -22,11 +22,40 @@
 | 查找 / 替换 / 转到行 | `Ctrl+F` / `Ctrl+H` / `Ctrl+G` |
 | 字号 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` |
 | 自动换行 / 全屏 | `Alt+Z` / `F11` |
-| 折叠全部 / 展开全部 | `Ctrl+Shift+[` / `Ctrl+Shift+]`（或点行号栏的小三角） |
+| 折叠全部 / 展开全部 | `Ctrl+K Ctrl+1` / `Ctrl+K Ctrl+J`（或点行号栏的小三角） |
+| 转大写 / 转小写 | `Ctrl+U` / `Ctrl+Shift+U` |
+| 删除整行 / 复制当前行 | `Ctrl+L` / `Ctrl+J` |
+| 行注释 / 块注释 | `Ctrl+/` / `Ctrl+Shift+/` |
+| 缩进 / 反缩进 | `Ctrl+I` / `Ctrl+Shift+I` |
+| 上下移动当前行 | `Alt+↑` / `Alt+↓` |
+| 排序（升 / 降） | `F9` / `Shift+F9` |
+| 选择单词 / 快速选择 | `Alt+W` / `Ctrl+D` |
+| 跳到匹配括号 / 选中到括号 | `Ctrl+]` / `Ctrl+Shift+]` |
+| 书签 添加 / 跳转 | `Ctrl+F2` / `F2`（`Shift+F2` 反向） |
+| 只留一个标签 / 关闭全部 | `Ctrl+Shift+F4` / `Alt+F4` |
+| 命令面板 | `Ctrl+P` |
 | 切换语言 | `Ctrl+L` 聚焦语言下拉 |
 
 文件也可以直接拖进窗口。最近打开、窗口大小、主题、字号都会记住，存在
 `%APPDATA%/MiniEdit/state.json`。
+
+## 命令层
+
+菜单栏有 8 个主菜单（文件 / 编辑 / 选择 / 查看 / 查找 / 工具 / 窗口 / 帮助）。
+每个菜单项背后是一条命令，`id` 与快捷键都照 EverEdit 的 `key.ini` 抄，不另起一套：
+
+- `js/commands.mjs` —— 命令注册表。一条命令 = `{ id, 菜单名, 快捷键, 执行 }`，
+  文本类命令都是纯函数（`{text,start,end}` 进，`{text,start,end}` 出），能脱离 DOM 单测；
+- `js/keys.mjs` —— 按原版写法解析组合键，`Ctrl+K Ctrl+1` 这种两段式也认；
+- `js/menu.mjs` —— 菜单树，标签与右栏快捷键都从注册表取，不重复抄写；
+- `js/app.js` 里的 `host` —— 命令与编辑器之间唯一的接口（读文档、应用改动、跳转、提示）。
+
+**覆盖率是可数的**：`node tools/ee-audit.mjs` 从原版安装目录里抽出 131 条 `cm_*` 命令，
+再数我们注册了几条。现在 **74 / 131 = 56.5%**，剩下的是需要侧栏、十六进制视图、
+多光标、宏那些还没做的部分。已实现的每条都有单测：`node tools/cmd-test.mjs` 跑 33 项断言。
+
+撤销栈自己维护（textarea 自带的 undo 在整体替换文本后就断了）：连续输入按 600ms 合并成一步，
+每条命令执行前单独压一步，`Ctrl+Z` / `Ctrl+Y` 走这份快照。
 
 ## 它凭什么"一样"
 
@@ -59,11 +88,17 @@ js/core/mac.mjs       .mac 文件解释器（词法 + 中间表示）
 js/core/highlight.mjs 逐行分词器（支持跨行区域与捕获组）
 js/core/theme.mjs     theme/*.ini → CSS 变量与 token 类
 js/core/fold.mjs      折叠区间（配对法 / 缩进法，声明可挂在区域上）
-js/app.js             编辑器主体：标签、渲染、查找替换、文件操作
+js/app.js             编辑器主体：标签、渲染、查找替换、文件操作、命令宿主
+js/commands.mjs       命令注册表（id 与快捷键照 EverEdit key.ini）
+js/keys.mjs           组合键解析与分发（支持 Ctrl+K Ctrl+1 两段式）
+js/menu.mjs           菜单栏与命令面板
+js/guard.js           启动守卫：模块加载失败时把错误显示出来，而不是白屏
 assets/reference/     随包分发的 syntax / theme / setting.ini
 tools/verify.mjs      覆盖率统计，`npm run verify`
 tools/unsupported.mjs 未支持语句按「语句名 × 文件数」排序，`npm run unsupported`
 tools/fold-test.mjs   折叠区间的不变量检查，`npm run test:fold`
+tools/ee-audit.mjs    从原版安装目录抽菜单/快捷键，算复刻覆盖率，`npm run audit`
+tools/cmd-test.mjs    命令层单测（33 项断言），`npm run test:cmd`
 tools/crop-png.mjs    裁剪放大截图（只依赖 zlib），查像素细节用
 ```
 
@@ -72,9 +107,9 @@ tools/crop-png.mjs    裁剪放大截图（只依赖 zlib），查像素细节�
 ## 开发与打包
 
 ```bash
-# WebView2 外壳（默认，出 846 KB 安装包）
+# WebView2 外壳（默认，出 865 KB 安装包）
 cd shell && ./build.sh          # cargo build --release + makensis
-MINIEDIT_WEB=<仓库根> MINIEDIT_SMOKE_SHELL=1 shell/target/release/miniedit-shell.exe
+MINIEDIT_WEB=<仓库根> MINIEDIT_SMOKE_SHELL=1 shell/target/release/MiniEdit.exe
 
 # Electron 外壳（备用）
 npm install
@@ -82,6 +117,8 @@ npm run serve       # 浏览器模式，http://127.0.0.1:5178
 npm start           # 桌面模式（需要 electron）
 npm run verify      # 打印每个语法文件的解释结果
 npm run test:fold   # 折叠区间的不变量检查
+npm run test:cmd    # 命令层单测
+npm run audit       # 复刻覆盖率：菜单/命令/对话框 对 EverEdit 原版
 npm run unsupported # 未支持语句排序（语句名 × 文件数）
 npm run dist        # 出安装包 → dist/miniedit_1.4.1_setup.exe
 ```
@@ -100,15 +137,21 @@ npm run dist        # 出安装包 → dist/miniedit_1.4.1_setup.exe
 
 两套外壳各有自己的无头自检。
 
-**WebView2 版**：`MINIEDIT_SMOKE_SHELL=1` 启动，3.5 秒后注入探针，逐步收集（每步单独 try/catch）：
+**WebView2 版**：`MINIEDIT_SMOKE_SHELL=1` 启动，3.5 秒后注入探针，逐步收集（每步单独 try/catch）。
+探针会先等启动真的完成（`ready`，最多 15 秒）——全新 WebView2 profile 首次渲染比固定等待慢，
+不等就会把"还没启动完"误报成"模块没加载"。
 
 1. `dom`：页面 URL、`#ta` 是否存在、body 长度；
-2. `io`：经 IPC 写 GBK + CRLF 中文，再读回来比对编码 / 行尾 / 正文；
-3. `fold`：点第一个三角，确认行数变少、箭头变 `▸`，再触发 `beforeinput` 确认正文复原；
-4. `layout`：工具条按钮有没有被折行裁掉、缩进线数量；
-5. `boot`：`/api/bundle` 里语法与恢复快照的数量。
+2. `state`：标签、语法数、主题数、高亮行数、图标数；
+3. `menu`：点开「查看」，确认弹层出来，且**有子菜单的行与普通行的文字左边界对齐**（差 ≤1px）；
+4. `cmd`：菜单栏主菜单数量，跑一条命令（复制当前行）确认文本变长，再撤消确认复原；
+5. `io`：经 IPC 写 GBK + CRLF 中文，再读回来比对编码 / 行尾 / 正文；
+6. `fold`：点第一个三角，确认行数变少、箭头变 `▸`，再触发 `beforeinput` 确认正文复原；
+7. `layout`：工具条按钮有没有被折行裁掉、缩进线数量；
+8. `boot`：`/api/bundle` 里语法与恢复快照的数量。
 
 结果一次性打印成 `SMOKE_SHELL {...}` + `SMOKE_OK`。安装后的 `D:\MiniEdit` 已用这条链路跑过：
+`ready=true` / 8 步全 ok / 8 个主菜单 / 菜单行对齐 `aligned=true`（232 = 232）/ `cmd.grew && cmd.undone` /
 67 个语法 / 24 套主题 / 69 行高亮 / `fold.restored=true` / GBK 往返 `same=true`。
 
 **Electron 版**：`MINIEDIT_SMOKE=<png>` 启动，走 IPC 往返、点三角折叠、抓界面状态、量工具条，
@@ -211,6 +254,10 @@ WebView2 版用 tao，没有跨平台菜单栏 API，所以**没有菜单条**�
   但运行时**必须把 `WebView2Loader.dll` 放到 exe 旁边**，否则进程 236 毫秒就静默退出，一个字都不输出；
 - tao 0.30 的 `WindowEvent::CloseRequested` 是空变体，**拦不住关窗**（winit 那些版本才有 `api`），
   所以"未保存要提示"改成了恢复快照；也没有菜单模块，`with_menu` 只收裸 `HMENU`；
+- 安装包里只要出现一条 `Delete /REBOOTOK` 或 `Rename /REBOOTOK`，旧版还在运行时删不掉，
+  NSIS 就把"删不掉"记成**重启后才能完成**，结束页立刻多一个"是否重启"的勾——这才是"每次安装完
+  都提示重启"的真正原因（不是安装包在装驱动）。改成 Cargo 直接产出 `MiniEdit.exe`、装前
+  `taskkill` 请旧版正常退出、再显式 `SetRebootFlag false`，这条提示就彻底没了；
 - 原生对话框会自己跑消息循环，从 WebView2 的 IPC 回调里同步弹可能卡死，要丢到独立线程再回包；
 - `windows-gnu` 工具链默认按 **console** 子系统链接，双击 exe 会先弹一个黑框（不是 cmd 的锅）。
   `main.rs` 顶上必须有 `#![windows_subsystem = "windows"]`，编完可以用 PE 头里的 subsystem 字段核对：

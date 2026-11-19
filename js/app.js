@@ -2,6 +2,9 @@ import { interpret } from './core/mac.mjs';
 import { parseIni, buildTokenCss, themeVars } from './core/theme.mjs';
 import { compile, highlightLines, spansToHtml, escapeHtml } from './core/highlight.mjs';
 import { foldRegions, foldMetas, visibleRows } from './core/fold.mjs';
+import { COMMANDS, COMMAND_LIST, command, buildKeyMap } from './commands.mjs';
+import { buildKeyIndex, createDispatcher } from './keys.mjs';
+import { menuSpec, buildMenuBar } from './menu.mjs';
 
 const $ = (id) => document.getElementById(id);
 const bridge = window.miniedit || null;
@@ -37,6 +40,7 @@ const state = {
   settings: {},
   themeName: '',
   lastRenderMs: 0,
+  lastTab: -1,
   gutterSig: '',
   lineHeight: 20,
   padY: 8,
@@ -114,6 +118,7 @@ async function boot() {
 
   applyZoom();
   bindUi();
+  buildShell();
 
   if (bridge) {
     bridge.onMenu(handleMenu);
@@ -255,6 +260,9 @@ function makeTab({ name, text, syntax, path, encoding, eol, sample }) {
     scrollTop: 0,
     folds: new Set(),
     foldCache: null,
+    marks: new Set(),
+    lastText: text,
+    lastSel: [0, 0],
   };
 }
 
@@ -292,6 +300,9 @@ function loadActive() {
   }
   el.ta.value = tab.text;
   el.ta.scrollTop = tab.scrollTop || 0;
+  tab.lastText = tab.text;
+  tab.lastSel = [0, 0];
+  histOf(tab);
   el.syntax.value = tab.syntax;
   el.stLang.textContent = tab.syntax.replace(/\.mac$/, '');
   el.stEnc.value = tab.encoding;
@@ -310,12 +321,14 @@ function setTabSyntax(name) {
   el.stLang.textContent = name.replace(/\.mac$/, '');
   state.gutterSig = '';
   render();
+  if ($('menubar')) buildMenu();
 }
 
 function activate(i) {
   if (i === state.active) return;
   const prev = activeTab();
   if (prev) prev.scrollTop = el.ta.scrollTop;
+  state.lastTab = state.active;
   state.active = i;
   renderTabs();
   loadActive();
@@ -681,6 +694,8 @@ function setText(value, selStart, selEnd) {
   tab.foldCache = null;
   el.ta.value = value;
   el.ta.setSelectionRange(selStart, selEnd ?? selStart);
+  tab.lastText = value;
+  tab.lastSel = [selStart, selEnd ?? selStart];
   touchDirty();
   scheduleRender();
 }
@@ -688,7 +703,14 @@ function setText(value, selStart, selEnd) {
 el.ta.addEventListener('input', () => {
   const tab = activeTab();
   if (!tab) return;
+  // 连续输入合并成一步撤销：上一次快照超过 600ms 才再压一步
+  const h = histOf(tab);
+  if (Date.now() - h.snapAt > 600) {
+    pushHist(tab, tab.lastText ?? tab.text, (tab.lastSel || [0, 0])[0], (tab.lastSel || [0, 0])[1]);
+  }
   tab.text = el.ta.value;
+  tab.lastText = tab.text;
+  tab.lastSel = [el.ta.selectionStart, el.ta.selectionEnd];
   tab.foldCache = null;
   touchDirty();
   scheduleRender();
@@ -726,6 +748,8 @@ document.addEventListener('keydown', (e) => {
 });
 
 el.ta.addEventListener('keydown', (e) => {
+  // 命令层（捕获阶段）已经处理过的组合，这里不再重复执行一遍
+  if (e.defaultPrevented) return;
   const mod = e.ctrlKey || e.metaKey;
 
   if (mod && e.key.toLowerCase() === 'f') { e.preventDefault(); openFind(false); return; }
@@ -1145,6 +1169,320 @@ function fragmentSet() {
   return frags;
 }
 
+// ---------- 撤销栈 ----------
+//
+// textarea 自带的 undo 在 setText（整体替换 value）之后就断了，所以命令层一律走这份
+// 快照栈：连续敲键盘按 600ms 合并成一步，命令执行前单独压一步。
+
+function histOf(tab) {
+  if (!tab.hist) tab.hist = { stack: [{ text: tab.text, start: 0, end: 0 }], i: 0, snapAt: 0 };
+  return tab.hist;
+}
+
+function pushHist(tab, text, start, end) {
+  if (!tab) return;
+  const h = histOf(tab);
+  const cur = h.stack[h.i];
+  if (cur && cur.text === text) {
+    cur.start = start;
+    cur.end = end ?? start;
+    return;
+  }
+  h.stack.length = h.i + 1;
+  h.stack.push({ text, start, end: end ?? start });
+  if (h.stack.length > 300) h.stack.shift();
+  h.i = h.stack.length - 1;
+  h.snapAt = Date.now();
+}
+
+function restoreHist(tab, snap) {
+  tab.text = snap.text;
+  tab.foldCache = null;
+  el.ta.value = snap.text;
+  el.ta.setSelectionRange(snap.start, snap.end);
+  tab.lastText = snap.text;
+  tab.lastSel = [snap.start, snap.end];
+  touchDirty();
+  scheduleRender();
+  syncScroll();
+  updateStatus();
+}
+
+function doUndo() {
+  const tab = activeTab();
+  if (!tab) return;
+  const h = histOf(tab);
+  if (h.stack[h.i] && h.stack[h.i].text !== tab.text) {
+    pushHist(tab, tab.text, el.ta.selectionStart, el.ta.selectionEnd);
+  }
+  if (h.i <= 0) { showToast('没有可撤消的操作'); return; }
+  h.i--;
+  restoreHist(tab, h.stack[h.i]);
+  h.snapAt = Date.now();
+}
+
+function doRedo() {
+  const tab = activeTab();
+  if (!tab) return;
+  const h = histOf(tab);
+  if (h.i >= h.stack.length - 1) { showToast('没有可重做的操作'); return; }
+  h.i++;
+  restoreHist(tab, h.stack[h.i]);
+  h.snapAt = Date.now();
+}
+
+// ---------- 编辑前先展开折叠 ----------
+// 折叠时 textarea 里只有可见行，字符偏移跟正文对不上；命令一律在展开状态下做
+function unfoldForEdit() {
+  const tab = activeTab();
+  if (!tab || !state.viewRows) return;
+  const s = realOffsetOfView(el.ta.selectionStart);
+  const e = realOffsetOfView(el.ta.selectionEnd);
+  tab.folds.clear();
+  render();
+  el.ta.setSelectionRange(s, e);
+}
+
+// ---------- 命令宿主 ----------
+
+const host = {
+  doc() {
+    const tab = activeTab();
+    if (!tab) return null;
+    unfoldForEdit();
+    return { text: tab.text, start: el.ta.selectionStart, end: el.ta.selectionEnd };
+  },
+  apply(fn) {
+    const tab = activeTab();
+    if (!tab) return;
+    const d = host.doc();
+    if (!d) return;
+    const r = fn(d);
+    if (!r) return;
+    if (r.text !== d.text) pushHist(tab, d.text, d.start, d.end);
+    setText(r.text, r.start, r.end ?? r.start);
+    el.ta.focus();
+  },
+  act(name, arg) { return handleMenu(name, arg); },
+  tab() { return activeTab(); },
+  tabSize() { return state.tabSize; },
+  setSel(a, b) {
+    unfoldForEdit();
+    el.ta.focus();
+    el.ta.setSelectionRange(a, b ?? a);
+    syncScroll();
+    updateStatus();
+  },
+  toast(msg) { showToast(msg); },
+};
+
+export function runCommand(id) {
+  const cmd = command(id);
+  if (!cmd) { showToast(`命令未实现：${id}`); return; }
+  try {
+    const r = cmd.run(host);
+    if (r && typeof r.catch === 'function') r.catch((e) => showToast(`执行失败：${e && e.message}`));
+  } catch (e) {
+    showToast(`执行失败：${e && e.message}`);
+  }
+}
+
+// ---------- 提示条 ----------
+
+let toastTimer = 0;
+function showToast(msg) {
+  let box = $('toast');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'toast';
+    document.body.appendChild(box);
+  }
+  box.textContent = msg;
+  box.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => box.classList.remove('on'), 1800);
+}
+
+// ---------- 书签 ----------
+
+function markLines(tab) {
+  if (!tab) return [];
+  if (!tab.marks) tab.marks = new Set();
+  return [...tab.marks].sort((a, b) => a - b);
+}
+
+function caretLine() {
+  const tab = activeTab();
+  if (!tab) return 0;
+  return el.ta.value.slice(0, el.ta.selectionStart).split('\n').length - 1;
+}
+
+// 光标处的单词（查找光标处单词要用）
+function wordAtText(t, i) {
+  const isW = (c) => !!c && /[A-Za-z0-9_\u4e00-\u9fa5]/.test(c);
+  if (!isW(t[i]) && !isW(t[i - 1])) return null;
+  let s = i;
+  let e = i;
+  if (!isW(t[s])) s--;
+  while (s > 0 && isW(t[s - 1])) s--;
+  while (e < t.length && isW(t[e])) e++;
+  return t.slice(s, e);
+}
+
+function toggleBookmark() {
+  const tab = activeTab();
+  if (!tab) return;
+  if (!tab.marks) tab.marks = new Set();
+  const line = caretLine();
+  if (tab.marks.has(line)) {
+    tab.marks.delete(line);
+    showToast(`已删除第 ${line + 1} 行的书签`);
+  } else {
+    tab.marks.add(line);
+    showToast(`已添加书签：第 ${line + 1} 行`);
+  }
+  render();
+}
+
+function jumpBookmark(dir) {
+  const tab = activeTab();
+  if (!tab) return;
+  const list = markLines(tab);
+  if (!list.length) { showToast('这个文件还没有书签（Ctrl+F2 添加）'); return; }
+  const line = caretLine();
+  const target = dir > 0
+    ? (list.find((l) => l > line) ?? list[0])
+    : ([...list].reverse().find((l) => l < line) ?? list[list.length - 1]);
+  const starts = lineStarts(tab.text);
+  const off = starts[Math.min(target, starts.length - 1)];
+  unfoldForEdit();
+  el.ta.focus();
+  const view = viewOffsetOfReal(off);
+  el.ta.setSelectionRange(view, view);
+  el.ta.scrollTop = Math.max(0, target * state.lineHeight - el.ta.clientHeight / 2);
+  syncScroll();
+  updateStatus();
+}
+
+// ---------- 折叠层级 ----------
+
+function regionDepths(regions) {
+  return regions.map((r) => regions.filter((o) => o !== r && o.start <= r.start && o.end >= r.end && (o.start < r.start || o.end > r.end)).length);
+}
+
+function foldLevel(n) {
+  const tab = activeTab();
+  if (!tab) return;
+  const lines = splitLines(tab.text);
+  const info = foldsOf(tab, lines, getSyntax(tab.syntax));
+  const depths = regionDepths(info.regions);
+  tab.folds.clear();
+  info.regions.forEach((r, i) => {
+    if (depths[i] + 1 >= n) tab.folds.add(r.start);
+  });
+  render();
+  showToast(tab.folds.size ? `折叠到第 ${n} 层：收起 ${tab.folds.size} 块` : `第 ${n} 层没有可折叠的块`);
+}
+
+function foldCurrent(mode) {
+  const tab = activeTab();
+  if (!tab) return;
+  const unfold = mode === 'unfold';
+  if (unfold) unfoldForEdit();
+  const line = unfold ? el.ta.value.slice(0, el.ta.selectionStart).split('\n').length - 1 : caretLine();
+  const lines = splitLines(tab.text);
+  const info = foldsOf(tab, lines, getSyntax(tab.syntax));
+  const inside = info.regions
+    .filter((r) => r.start <= line && r.end >= line)
+    .sort((a, b) => (a.end - a.start) - (b.end - b.start));
+  const target = inside[0] || info.regions.find((r) => r.start === line);
+  if (!target) { showToast('这一行不在任何折叠块里'); return; }
+  if (unfold) {
+    tab.folds.delete(target.start);
+    showToast(`已展开第 ${target.start + 1} 行起的块`);
+  } else {
+    tab.folds.add(target.start);
+    showToast(`已折叠第 ${target.start + 1} 行起的块`);
+  }
+  render();
+}
+
+// ---------- 命令面板 ----------
+
+function openPalette() {
+  const dlg = $('paletteDlg');
+  if (!dlg) return;
+  const input = $('paletteInput');
+  input.value = '';
+  renderPalette('');
+  input.oninput = () => renderPalette(input.value);
+  input.onkeydown = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); dlg.close(); return; }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const first = $('paletteList').querySelector('.p-row');
+      if (first) { dlg.close(); runCommand(first.dataset.cmd); }
+    }
+  };
+  dlg.showModal();
+  input.focus();
+}
+
+function renderPalette(q) {
+  const key = q.trim().toLowerCase();
+  const rows = COMMAND_LIST.filter((c) => {
+    if (!key) return true;
+    const name = (c.menu || '') + c.id;
+    return name.toLowerCase().includes(key) || (c.keys || []).join(' ').toLowerCase().includes(key);
+  }).slice(0, 40);
+  $('paletteList').innerHTML = rows
+    .map((c) => `<div class="p-row" data-cmd="${c.id}">
+      <span class="p-name">${escapeHtml(c.menu || c.id)}</span>
+      <span class="p-key">${escapeHtml((c.keys || []).join('  '))}</span>
+    </div>`)
+    .join('') || '<div class="p-empty">没有匹配的命令</div>';
+  $('paletteList').querySelectorAll('.p-row').forEach((row) => {
+    row.addEventListener('click', () => {
+      $('paletteDlg').close();
+      runCommand(row.dataset.cmd);
+    });
+  });
+}
+
+// ---------- 菜单与快捷键 ----------
+
+function buildMenu() {
+  const bar = $('menubar');
+  if (!bar) return;
+  const tab = activeTab();
+  const spec = menuSpec({
+    syntaxes: state.bundle.syntaxes.filter((n) => !fragmentSet().has(n)),
+    themes: state.bundle.themes,
+    syntax: tab ? tab.syntax : 'text.mac',
+    theme: el.theme.value,
+    onSyntax: (n) => setTabSyntax(n),
+    onTheme: (n) => { el.theme.value = n; applyTheme(n); },
+  });
+  buildMenuBar(bar, spec, runCommand);
+}
+
+function buildShell() {
+  buildMenu();
+  const index = buildKeyIndex(buildKeyMap());
+  const dispatch = createDispatcher(index, runCommand);
+  // 自检脚本要能直接驱动命令
+  window.__mini = { run: runCommand, state, host };
+  // 捕获阶段先跑：抢在 textarea 自己的按键与浏览器默认行为前面
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) && t !== el.ta) return;
+    if (t && t.tagName === 'DIALOG') return;
+    if (document.querySelector('dialog[open]')) return;
+    dispatch(e);
+  }, true);
+}
+
+
 // ---------- 菜单动作 ----------
 
 async function handleMenu(action, arg) {
@@ -1202,6 +1540,67 @@ async function handleMenu(action, arg) {
     case 'toggle-fullscreen': toggleFullscreen(); break;
     case 'compare': showAbout(); break;
     case 'about': showAbout(); break;
+
+    // 命令层新增的动作
+    case 'undo': doUndo(); break;
+    case 'redo': doRedo(); break;
+    case 'exec':
+      if (!document.execCommand(arg)) showToast(`浏览器不允许 ${arg}，请用快捷键`);
+      break;
+    case 'close-others': {
+      const keep = state.active;
+      for (let i = state.tabs.length - 1; i >= 0; i--) {
+        if (i === keep) continue;
+        if (!(await closeTab(i))) break;
+      }
+      break;
+    }
+    case 'reload': {
+      const tab = activeTab();
+      if (!tab || !tab.path) { showToast('这个标签还没有对应的磁盘文件'); break; }
+      const r = await bridge.readFile(tab.path);
+      if (!r || !r.ok) { showToast('重新读取失败'); break; }
+      pushHist(tab, tab.text, el.ta.selectionStart, el.ta.selectionEnd);
+      tab.text = r.item.text;
+      tab.encoding = r.item.encoding || tab.encoding;
+      tab.eol = r.item.eol || tab.eol;
+      tab.foldCache = null;
+      tab.folds.clear();
+      tab.dirty = false;
+      loadActive();
+      renderTabs();
+      showToast(`已重新读取 ${tab.name}`);
+      break;
+    }
+    case 'find-next':
+    case 'find-prev':
+      if (el.findbar.hidden) openFind(false);
+      else { if (!findMatches.length) runFind(); jumpTo(action === 'find-next' ? 1 : -1); }
+      break;
+    case 'find-word': {
+      const sel = el.ta.value.slice(el.ta.selectionStart, el.ta.selectionEnd);
+      const d = host.doc();
+      const word = sel || (d && (wordAtText(d.text, d.start) || ''));
+      if (!word) { showToast('光标不在单词上'); break; }
+      el.findbar.hidden = false;
+      el.findInput.value = word;
+      runFind();
+      jumpTo(arg > 0 ? 1 : -1);
+      break;
+    }
+    case 'fold-level': foldLevel(arg); break;
+    case 'fold-cur': foldCurrent('fold'); break;
+    case 'unfold-cur': foldCurrent('unfold'); break;
+    case 'bookmark-toggle': toggleBookmark(); break;
+    case 'bookmark-next': jumpBookmark(arg); break;
+    case 'tab-next':
+      if (state.tabs.length > 1) activate((state.active + arg + state.tabs.length) % state.tabs.length);
+      break;
+    case 'tab-last':
+      if (state.lastTab >= 0 && state.lastTab !== state.active) activate(state.lastTab);
+      break;
+    case 'palette': openPalette(); break;
+    case 'fullscreen': toggleFullscreen(); break;
     default: break;
   }
 }
@@ -1288,6 +1687,8 @@ function bindUi() {
   $('gotoOk').addEventListener('click', doGoto);
   $('gotoCancel').addEventListener('click', () => $('gotoDlg').close());
   $('gotoClose').addEventListener('click', () => $('gotoDlg').close());
+  const paletteClose = $('paletteClose');
+  if (paletteClose) paletteClose.addEventListener('click', () => $('paletteDlg').close());
   $('gotoInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); doGoto(); }
   });

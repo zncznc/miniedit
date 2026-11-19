@@ -90,6 +90,17 @@ pub const SMOKE_JS: &str = r#"
     catch (e) { out[name] = { error: String((e && e.message) || e) }; out.steps.push(name + ':fail'); }
   };
 
+  // 全新 WebView2 profile 的首次渲染可能超过固定等待时间，先等启动真的完成再探
+  const waitFor = async (fn, ms) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      try { if (fn()) return true; } catch {}
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    return false;
+  };
+  out.ready = await waitFor(() => window.__mini && document.querySelectorAll('.tab').length > 0, 15000);
+
   await step('dom', () => ({
     href: location.href,
     title: document.title,
@@ -107,6 +118,43 @@ pub const SMOKE_JS: &str = r#"
     icons: document.querySelectorAll('.toolbar button .ico').length,
     errors: (window.__errors || []).slice(0, 3),
   }));
+
+  // 菜单要能打开，且「有子菜单的行」与普通行的文字左边界必须对齐
+  await step('menu', () => {
+    const items = [...document.querySelectorAll('#menubar .m-item')];
+    const view = items.find((x) => x.textContent.indexOf('查看') === 0);
+    if (!view) return { opened: false };
+    view.click();
+    const popup = document.querySelector('.menu-popup');
+    if (!popup) return { opened: false };
+    const rows = [...popup.querySelectorAll('.m-row')];
+    const plain = rows.find((r) => !r.classList.contains('has-sub'));
+    const sub = rows.find((r) => r.classList.contains('has-sub'));
+    const leftOf = (r) => Math.round(r.querySelector('.m-label').getBoundingClientRect().left);
+    const out = {
+      opened: true,
+      rows: rows.length,
+      plainLeft: plain ? leftOf(plain) : null,
+      subLeft: sub ? leftOf(sub) : null,
+    };
+    out.aligned = out.plainLeft !== null && out.subLeft !== null && Math.abs(out.plainLeft - out.subLeft) <= 1;
+    document.body.click();
+    return out;
+  });
+
+  await step('cmd', () => {
+    const ta = document.getElementById('ta');
+    const bar = document.querySelectorAll('#menubar .m-item').length;
+    const m = window.__mini;
+    if (!ta || !m) return { bar, ok: false, why: '没有命令层' };
+    const before = ta.value;
+    ta.focus();
+    ta.setSelectionRange(0, 0);
+    m.run('cm_edit_duplicateline');
+    const grew = ta.value.length > before.length;
+    m.run('cm_edit_undo');
+    return { bar, grew, undone: ta.value === before };
+  });
 
   await step('io', async () => {
     const tmp = await window.miniedit.tempPath();

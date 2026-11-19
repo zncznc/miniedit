@@ -1,8 +1,14 @@
 [package]
 name = "miniedit-shell"
-version = "1.4.1"
+version = "1.5.0"
 edition = "2021"
 description = "MiniEdit 的 WebView2 外壳"
+
+# 直接产出 MiniEdit.exe：安装包里就不用「改名」这一步，
+# 没有改名也就不会出现「删不掉 → 要求重启」的提示
+[[bin]]
+name = "MiniEdit"
+path = "src/main.rs"
 
 [dependencies]
 wry = { version = "0.47", features = ["devtools", "drag-drop"] }

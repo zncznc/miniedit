@@ -4,7 +4,7 @@
 !include "FileFunc.nsh"
 
 !define APPNAME "MiniEdit"
-!define VERSION "1.4.1"
+!define VERSION "1.5.0"
 !define PUBLISHER "MiniEdit"
 !define EXE "MiniEdit.exe"
 
@@ -35,17 +35,26 @@ BrandingText "${APPNAME} ${VERSION}"
 !insertmacro MUI_LANGUAGE "English"
 
 Section "安装" SecMain
+  ; 显式清掉重启标记：本安装包不需要重启，任何情况下都不该弹这句
+  SetRebootFlag false
+
+  ; 旧版还开着会占住 exe。先请它正常退出（关窗时会写恢复快照），
+  ; 这样覆盖文件永远成功，不需要 /REBOOTOK，也就不会提示重启。
+  nsExec::Exec "taskkill /IM ${EXE}"
+  Pop $0
+  Sleep 700
+
   SetOutPath "$INSTDIR"
-  File "target\release\miniedit-shell.exe"
+  File "target\release\MiniEdit.exe"
   File "target\release\WebView2Loader.dll"
-  Rename /REBOOTOK "$INSTDIR\miniedit-shell.exe" "$INSTDIR\${EXE}"
 
   SetOutPath "$INSTDIR\web"
   File "..\index.html"
   SetOutPath "$INSTDIR\web\css"
   File "..\css\app.css"
   SetOutPath "$INSTDIR\web\js"
-  File "..\js\app.js"
+  File "..\js\*.js"
+  File "..\js\*.mjs"
   SetOutPath "$INSTDIR\web\js\core"
   File "..\js\core\*.mjs"
   SetOutPath "$INSTDIR\web\assets\samples"
@@ -78,6 +87,10 @@ Section "安装" SecMain
 SectionEnd
 
 Section "Uninstall"
+  nsExec::Exec "taskkill /IM ${EXE}"
+  Pop $0
+  Sleep 700
+
   Delete "$DESKTOP\MiniEdit.lnk"
   Delete "$SMPROGRAMS\MiniEdit\MiniEdit.lnk"
   Delete "$SMPROGRAMS\MiniEdit\卸载 MiniEdit.lnk"

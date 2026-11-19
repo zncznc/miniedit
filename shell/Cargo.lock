@@ -1569,7 +1569,7 @@ dependencies = [
 
 [[package]]
 name = "miniedit-shell"
-version = "1.4.1"
+version = "1.5.0"
 dependencies = [
  "encoding_rs",
  "rfd",

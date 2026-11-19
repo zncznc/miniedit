@@ -8,6 +8,7 @@
 </head>
 <body>
 <div id="app">
+  <nav class="menubar" id="menubar"></nav>
   <header class="tabs" id="tabs"></header>
 
   <div class="toolbar">
@@ -111,6 +112,15 @@
   <div class="dlg-foot"><button id="gotoCancel">取消</button><button id="gotoOk">跳转</button></div>
 </dialog>
 
+<dialog id="paletteDlg" class="palette">
+  <div class="dlg-head"><span>命令面板</span><span id="paletteClose" style="cursor:pointer;opacity:.6">✕</span></div>
+  <div class="dlg-body">
+    <input type="text" id="paletteInput" placeholder="输入命令名或快捷键，回车执行第一条">
+    <div id="paletteList"></div>
+  </div>
+</dialog>
+
+<script src="js/guard.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>
