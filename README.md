@@ -1,4 +1,4 @@
-# MiniEdit 1.5.0
+# MiniEdit 1.5.1
 
 一个能装进 Windows 的代码编辑器。**高亮规则不写在程序里**——它直接解释 EverEdit 分发格式的
 `syntax/*.mac` 与 `theme/*.ini`，所以"像不像"可以逐条数出来，不用靠肉眼比。
@@ -7,11 +7,11 @@
 
 ## 装与用
 
-到 [Releases](../../releases/latest) 下载 `miniedit_1.5.0_setup.exe`，双击安装，可自选目录，装完自动启动。
+到 [Releases](../../releases/latest) 下载 `miniedit_1.5.1_setup.exe`，双击安装，可自选目录，装完自动启动。
 安装后开始菜单和桌面会有 MiniEdit。第一次启动会打开两个示例文件，直接敲字就能编辑。
 工具条是图标按钮，悬停有名称和快捷键提示。
 
-**安装包 865 KB，装完 2.19 MB**——用的是系统自带的 Edge WebView2 渲染界面，不再自带浏览器。
+**安装包 868 KB，装完 2.19 MB**——用的是系统自带的 Edge WebView2 渲染界面，不再自带浏览器。
 （Win11 自带 WebView2；Win10 装过 Edge 就有。）上一版走 Electron，安装包 108 MB、装完 311 MB，
 代码同样是这些，差别全在运行时。两个外壳都在仓库里，见文末「两个外壳」。
 
@@ -107,7 +107,7 @@ tools/crop-png.mjs    裁剪放大截图（只依赖 zlib），查像素细节�
 ## 开发与打包
 
 ```bash
-# WebView2 外壳（默认，出 865 KB 安装包）
+# WebView2 外壳（默认，出 868 KB 安装包）
 cd shell && ./build.sh          # cargo build --release + makensis
 MINIEDIT_WEB=<仓库根> MINIEDIT_SMOKE_SHELL=1 shell/target/release/MiniEdit.exe
 
@@ -120,7 +120,7 @@ npm run test:fold   # 折叠区间的不变量检查
 npm run test:cmd    # 命令层单测
 npm run audit       # 复刻覆盖率：菜单/命令/对话框 对 EverEdit 原版
 npm run unsupported # 未支持语句排序（语句名 × 文件数）
-npm run dist        # 出安装包 → dist/miniedit_1.4.1_setup.exe
+npm run dist        # 出安装包 → dist/miniedit_1.5.1_setup.exe
 ```
 
 安装包不进仓库，只挂在 Releases 上；`dist/`、`dist-shell/` 已在 `.gitignore` 里。
@@ -143,15 +143,17 @@ npm run dist        # 出安装包 → dist/miniedit_1.4.1_setup.exe
 
 1. `dom`：页面 URL、`#ta` 是否存在、body 长度；
 2. `state`：标签、语法数、主题数、高亮行数、图标数；
-3. `menu`：点开「查看」，确认弹层出来，且**有子菜单的行与普通行的文字左边界对齐**（差 ≤1px）；
-4. `cmd`：菜单栏主菜单数量，跑一条命令（复制当前行）确认文本变长，再撤消确认复原；
-5. `io`：经 IPC 写 GBK + CRLF 中文，再读回来比对编码 / 行尾 / 正文；
-6. `fold`：点第一个三角，确认行数变少、箭头变 `▸`，再触发 `beforeinput` 确认正文复原；
-7. `layout`：工具条按钮有没有被折行裁掉、缩进线数量；
-8. `boot`：`/api/bundle` 里语法与恢复快照的数量。
+3. `recover`：预置一份"比磁盘短"的 `recovery.json`，确认打开的是**磁盘上的完整内容**而不是旧快照
+   （`tabs=1`、`dirty=0`），另置一份"改过中间"的，确认两份都留（`tabs=2`、旧的那份标 `（上次未保存）`）；
+4. `menu`：点开「查看」，确认弹层出来，且**有子菜单的行与普通行的文字左边界对齐**（差 ≤1px）；
+5. `cmd`：菜单栏主菜单数量，跑一条命令（复制当前行）确认文本变长，再撤消确认复原；
+6. `io`：经 IPC 写 GBK + CRLF 中文，再读回来比对编码 / 行尾 / 正文；
+7. `fold`：点第一个三角，确认行数变少、箭头变 `▸`，再触发 `beforeinput` 确认正文复原；
+8. `layout`：工具条按钮有没有被折行裁掉、缩进线数量；
+9. `boot`：`/api/bundle` 里语法与恢复快照的数量。
 
 结果一次性打印成 `SMOKE_SHELL {...}` + `SMOKE_OK`。安装后的 `D:\MiniEdit` 已用这条链路跑过：
-`ready=true` / 8 步全 ok / 8 个主菜单 / 菜单行对齐 `aligned=true`（232 = 232）/ `cmd.grew && cmd.undone` /
+`ready=true` / 9 步全 ok / 8 个主菜单 / 菜单行对齐 `aligned=true`（232 = 232）/ `cmd.grew && cmd.undone` /
 67 个语法 / 24 套主题 / 69 行高亮 / `fold.restored=true` / GBK 往返 `same=true`。
 
 **Electron 版**：`MINIEDIT_SMOKE=<png>` 启动，走 IPC 往返、点三角折叠、抓界面状态、量工具条，
@@ -219,7 +221,7 @@ npm run dist        # 出安装包 → dist/miniedit_1.4.1_setup.exe
 | `MiniEdit.exe`（Rust 外壳） | 955 KB |
 | `WebView2Loader.dll` | 162 KB |
 | 前端 + 75 个 `.mac` + 24 套主题 | 1.3 MB |
-| 安装包（LZMA 压完） | **846 KB** |
+| 安装包（LZMA 压完） | **868 KB** |
 
 Electron 版为保留"没有 WebView2 也能跑"这条退路，一行没删；`npm run dist` 仍可出 108 MB 的包。
 
@@ -228,8 +230,10 @@ Electron 版为保留"没有 WebView2 也能跑"这条退路，一行没删；`n
 WebView2 版用 tao，没有跨平台菜单栏 API，所以**没有菜单条**：文件/编辑/查看的加速键改由前端
 `document` 级 keydown 接管（Ctrl+N/O/S/Shift+S/W、Ctrl+=/−/0、Alt+Z、Ctrl+L…都通）。
 另外 tao 的 `CloseRequested` 拦不住关窗，没法像 Electron 那样弹"要保存吗"，改成**未保存内容快照**：
-改到 1.2 秒后自动写 `%APPDATA%/MiniEdit/recovery.json`，下次启动原样恢复成带 ● 的标签页，
-点 × 直接走人也不丢字。
+改到 1.2 秒后自动写 `%APPDATA%/MiniEdit/recovery.json`，下次启动恢复成带 ● 的标签页，点 × 直接走人也不丢字。
+快照不盲信：启动时先跟磁盘对账——一样就按干净文件开；磁盘只是接着往后写了（快照是它的前缀）就用磁盘的；
+两边都改过才算真冲突，磁盘开一个标签、快照另存成「（上次未保存）」，谁都不覆盖。
+窗口重新获得焦点时还会比一次 `mtime`，别的程序改过就自动重新载入（只对没有未保存改动的标签），`F5` 可手动重读。
 
 ## 没做的，以及为什么
 
@@ -258,6 +262,9 @@ WebView2 版用 tao，没有跨平台菜单栏 API，所以**没有菜单条**�
   NSIS 就把"删不掉"记成**重启后才能完成**，结束页立刻多一个"是否重启"的勾——这才是"每次安装完
   都提示重启"的真正原因（不是安装包在装驱动）。改成 Cargo 直接产出 `MiniEdit.exe`、装前
   `taskkill` 请旧版正常退出、再显式 `SetRebootFlag false`，这条提示就彻底没了；
+- 「记事本里是新内容、MiniEdit 里是旧内容」不是编码问题：`recovery.json` 里存着上次退出时的缓冲区，
+  启动时无脑恢复就会盖住磁盘上更新的版本；同一个文件再打开一次也只是激活那个旧标签（`addItem` 只按路径去重）。
+  现在恢复前先跟磁盘对账，重新打开时会换成磁盘内容，窗口重新获得焦点还会比 `mtime` 自动跟上；
 - 原生对话框会自己跑消息循环，从 WebView2 的 IPC 回调里同步弹可能卡死，要丢到独立线程再回包；
 - `windows-gnu` 工具链默认按 **console** 子系统链接，双击 exe 会先弹一个黑框（不是 cmd 的锅）。
   `main.rs` 顶上必须有 `#![windows_subsystem = "windows"]`，编完可以用 PE 头里的 subsystem 字段核对：

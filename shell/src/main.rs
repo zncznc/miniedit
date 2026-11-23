@@ -220,6 +220,19 @@ fn handle_ipc(
                 Err(e) => json!({ "ok": false, "error": e, "path": p }),
             }
         }
+        // 只问修改时间，不读正文：切回窗口时用它判断文件有没有被别的程序改过
+        "stat" => {
+            let p = arg_str("path");
+            match std::fs::metadata(&p) {
+                Ok(m) if m.is_file() => json!({
+                    "ok": true,
+                    "mtimeMs": mtime_ms(Path::new(&p)),
+                    "size": m.len(),
+                }),
+                Ok(_) => json!({ "ok": false, "error": "不是文件" }),
+                Err(e) => json!({ "ok": false, "error": e.to_string() }),
+            }
+        }
         "read-many" => {
             let paths: Vec<String> = args
                 .get("paths")

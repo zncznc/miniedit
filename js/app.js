@@ -123,28 +123,19 @@ async function boot() {
   if (bridge) {
     bridge.onMenu(handleMenu);
     bridge.onOpenFiles((paths) => openPaths(paths));
-    const recovered = state.recovery || [];
-    if (recovered.length) {
-      // 上次退出时有没保存的内容：直接恢复成未保存标签，点 ● 就能另存
-      for (const r of recovered) {
-        const tab = addTab({
-          name: r.name,
-          text: r.text,
-          syntax: r.syntax,
-          path: r.path,
-          encoding: r.encoding,
-          eol: r.eol,
-        });
-        tab.dirty = true;
+    const restored = await restoreRecovery(state.recovery || []);
+    if (!restored) {
+      if (state.recent.length) await openPaths([state.recent[0]]);
+      else {
+        await openSample('demo.py');
+        await openSample('hello.c');
       }
-      renderTabs();
-      updateTitle();
-    } else if (state.recent.length) await openPaths([state.recent[0]]);
-    else {
-      await openSample('demo.py');
-      await openSample('hello.c');
     }
     updateTitle();
+    window.addEventListener('focus', () => setTimeout(checkDiskFresh, 60));
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) checkDiskFresh();
+    });
   } else {
     // 浏览器模式：留着原来的调试入口
     const params = new URLSearchParams(location.search);
@@ -247,7 +238,7 @@ function activeTab() {
   return state.tabs[state.active] || null;
 }
 
-function makeTab({ name, text, syntax, path, encoding, eol, sample }) {
+function makeTab({ name, text, syntax, path, encoding, eol, sample, mtime }) {
   return {
     name,
     text,
@@ -263,6 +254,8 @@ function makeTab({ name, text, syntax, path, encoding, eol, sample }) {
     marks: new Set(),
     lastText: text,
     lastSel: [0, 0],
+    // 打开/保存那一刻文件的修改时间，用来判断磁盘之后有没有被别人改过
+    mtime: mtime || 0,
   };
 }
 
@@ -666,15 +659,92 @@ function updateTitle() {
 // 未保存内容的快照：WebView2 壳拦不住窗口关闭，改成"随手存、下次启动恢复"，
 // 点 × 走人也不会丢字。Electron 版有原生菜单可以拦截关闭，这里也不冲突。
 let recoveryTimer = null;
+
+// 快照里多带一个 mtime：下次启动才知道"这份快照是哪个时刻的文件"
 function scheduleRecovery() {
   if (!bridge || !bridge.saveRecovery) return;
   clearTimeout(recoveryTimer);
   recoveryTimer = setTimeout(() => {
     const dirty = state.tabs
       .filter((t) => t.dirty)
-      .map((t) => ({ name: t.name, text: t.text, syntax: t.syntax, path: t.path, encoding: t.encoding, eol: t.eol }));
+      .map((t) => ({
+        name: t.name,
+        text: t.text,
+        syntax: t.syntax,
+        path: t.path,
+        encoding: t.encoding,
+        eol: t.eol,
+        mtime: t.mtime || 0,
+      }));
     bridge.saveRecovery(dirty);
   }, 1200);
+}
+
+// 恢复上次没保存完的内容，但先跟磁盘上的文件对一次账。
+// 以前的写法是无脑恢复，于是出现「文件在记事本里又写了几段，MiniEdit 却一直是老的」：
+// 快照存的是当时那个旧缓冲区，磁盘其实早就更新了。
+//   磁盘与快照一字不差   → 按干净的磁盘文件打开
+//   磁盘是在快照后面接着写的（多出来的部分）→ 用磁盘的，旧快照没有信息可丢
+//   两边都改过（真冲突）→ 磁盘开一个标签，快照另外留一个「上次未保存」，谁都不动
+async function restoreRecovery(list) {
+  if (!bridge || !list.length) return 0;
+  const flat = (s) => String(s || '').replace(/\r\n?/g, '\n');
+  let opened = 0;
+  for (const r of list) {
+    let item = null;
+    if (r.path) {
+      const res = await bridge.readFile(r.path);
+      if (res && res.ok) item = res.item;
+    }
+    // 文件被删了或者读不到：只能按原样恢复成未保存标签
+    if (!item) {
+      const tab = addTab({ name: r.name, text: r.text, syntax: r.syntax, path: r.path, encoding: r.encoding, eol: r.eol });
+      tab.dirty = true;
+      opened++;
+      continue;
+    }
+    if (flat(item.text) === flat(r.text)) {
+      addItem(item);
+      opened++;
+      continue;
+    }
+    if (r.text && flat(item.text).startsWith(flat(r.text))) {
+      addItem(item);
+      showToast(`${r.name} 在其它程序里又写了新内容，已按磁盘上的最新版本打开`);
+      opened++;
+      continue;
+    }
+    // 真冲突：两份都留，让用户自己取舍（默认停在磁盘版本上）
+    const stale = addTab({ name: `${r.name}（上次未保存）`, text: r.text, syntax: r.syntax, path: null, encoding: r.encoding, eol: r.eol });
+    stale.dirty = true;
+    addItem(item);
+    showToast(`${r.name} 的旧缓冲与磁盘内容不一致，两份都开着，请自行取舍`);
+    opened += 2;
+  }
+  // 恢复出来的标签要带 ● 才有"未保存"的意思，addTab 里已经渲染过了，这里补一次
+  if (opened) renderTabs();
+  return opened;
+}
+
+// 切回窗口时对一眼磁盘：文件被记事本改过就自动跟上（只对没有未保存改动的标签）
+let checkingFresh = false;
+async function checkDiskFresh() {
+  const tab = activeTab();
+  if (!tab || !tab.path || tab.dirty || checkingFresh) return;
+  if (!bridge || !bridge.stat || !tab.mtime) return;
+  checkingFresh = true;
+  try {
+    const st = await bridge.stat(tab.path);
+    if (!st || !st.ok || !st.mtimeMs || st.mtimeMs <= tab.mtime) return;
+    const res = await bridge.readFile(tab.path);
+    if (!res || !res.ok || res.item.text === tab.text) return;
+    applyDisk(tab, res.item);
+    showToast(`${tab.name} 在磁盘上更新了，已自动重新载入`);
+  } catch {
+    // 读不到就算了，别因为一次探测把界面弄挂
+  } finally {
+    checkingFresh = false;
+  }
 }
 
 function touchDirty(flag = true) {
@@ -828,8 +898,20 @@ el.ta.addEventListener('keydown', (e) => {
 function addItem(item, sample = false) {
   const existing = state.tabs.findIndex((t) => t.path && t.path === item.path);
   if (existing >= 0) {
+    const tab = state.tabs[existing];
     activate(existing);
-    return state.tabs[existing];
+    if (tab.text === item.text) {
+      tab.mtime = item.mtimeMs || tab.mtime;
+      return tab;
+    }
+    if (!tab.dirty) {
+      // 同一个文件又开了一次：缓冲区是干净的，直接换成磁盘上的最新内容
+      applyDisk(tab, item);
+      showToast(`${tab.name} 已按磁盘内容重新载入`);
+    } else {
+      showToast('磁盘上的文件比这里的缓冲区新：要同步请按 F5 重新读取');
+    }
+    return tab;
   }
   return addTab({
     name: item.name,
@@ -839,7 +921,33 @@ function addItem(item, sample = false) {
     encoding: item.encoding,
     eol: item.eol,
     sample,
+    mtime: item.mtimeMs || 0,
   });
+}
+
+// 用磁盘上的内容替换标签正文，光标位置尽量保留
+function applyDisk(tab, item) {
+  const caret = tab === activeTab() ? el.ta.selectionStart : 0;
+  const top = tab === activeTab() ? el.ta.scrollTop : tab.scrollTop || 0;
+  tab.text = item.text;
+  tab.encoding = item.encoding || tab.encoding;
+  tab.eol = item.eol || tab.eol;
+  tab.mtime = item.mtimeMs || tab.mtime;
+  tab.foldCache = null;
+  tab.folds.clear();
+  tab.dirty = false;
+  // 换成磁盘内容后，旧的撤销栈已经没有意义（撤回去会变成别的文件）
+  tab.hist = null;
+  if (tab === activeTab()) {
+    loadActive();
+    const at = Math.min(caret, tab.text.length);
+    el.ta.setSelectionRange(at, at);
+    el.ta.scrollTop = top;
+    syncScroll();
+  } else {
+    tab.lastText = tab.text;
+    renderTabs();
+  }
 }
 
 async function openPaths(paths) {
@@ -913,6 +1021,7 @@ async function saveActive(saveAs) {
   }
 
   tab.dirty = false;
+  if (saved && saved.mtimeMs) tab.mtime = saved.mtimeMs;
   renderTabs();
   updateTitle();
   updateStatus();
@@ -1564,6 +1673,7 @@ async function handleMenu(action, arg) {
       tab.text = r.item.text;
       tab.encoding = r.item.encoding || tab.encoding;
       tab.eol = r.item.eol || tab.eol;
+      tab.mtime = r.item.mtimeMs || 0;
       tab.foldCache = null;
       tab.folds.clear();
       tab.dirty = false;

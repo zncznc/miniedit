@@ -84,7 +84,7 @@ def('cm_file_saveas', '另存为...', ['CS+S'], (h) => h.act('save-as'));
 def('cm_file_close', '关闭', ['C+W', 'C+F4'], (h) => h.act('close'));
 def('cm_file_closeothers', '关闭其它窗口', ['CS+F4'], (h) => h.act('close-others'));
 def('cm_file_exit', '退出', ['A+F4'], (h) => h.act('close-all'));
-def('cm_file_reload', '重新读取', [], (h) => h.act('reload'));
+def('cm_file_reload', '重新读取', ['F5'], (h) => h.act('reload'));
 
 // ---------- 剪贴板 ----------
 

@@ -54,6 +54,7 @@ pub const INIT_JS: &str = r#"
     },
 
     readFile: (path) => call('read', { path }),
+    stat: (path) => call('stat', { path }),
     writeFile: (payload) => call('write', payload || {}),
     saveDialog: (payload) => call('save-dialog', payload || {}),
     confirmClose: (name) => call('confirm-close', { name: name || '' }),
@@ -118,6 +119,19 @@ pub const SMOKE_JS: &str = r#"
     icons: document.querySelectorAll('.toolbar button .ico').length,
     errors: (window.__errors || []).slice(0, 3),
   }));
+
+  // 恢复快照要先跟磁盘对账：预置一份"比磁盘短"的 recovery.json，
+  // 正确行为是打开磁盘上的完整内容（tabs=1、dirty=0、len 等于磁盘长度）
+  await step('recover', () => {
+    const ta = document.getElementById('ta');
+    return {
+      tabs: document.querySelectorAll('#tabs .tab').length,
+      dirty: document.querySelectorAll('#tabs .dirty').length,
+      names: [...document.querySelectorAll('.tab .name')].map((n) => n.textContent),
+      len: ta ? ta.value.length : -1,
+      head: ta ? ta.value.slice(0, 24) : '',
+    };
+  });
 
   // 菜单要能打开，且「有子菜单的行」与普通行的文字左边界必须对齐
   await step('menu', () => {
